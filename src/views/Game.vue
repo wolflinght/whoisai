@@ -52,57 +52,68 @@
         </div>
 
         <div v-if="gameState === 'choosing'" class="answers-section">
-          <h3>请选择你认为是真人的玩家：</h3>
-          <div class="available-models" v-if="availableModels.length">
-            <h4>本局参与的AI模型：</h4>
-            <el-tag 
-              v-for="model in availableModels" 
-              :key="model"
-              class="model-tag"
-            >
-              {{ model }}
-            </el-tag>
+          <div class="question-display">
+            <h3>问题：{{ currentQuestion }}</h3>
           </div>
-          <div class="players-grid">
-            <div 
-              v-for="player in players" 
-              :key="player.id" 
-              class="player-card"
-              :class="{ selected: selectedPlayer === player.id }"
+          
+          <div class="answers-list">
+            <h3>所有回答：</h3>
+            <el-card 
+              v-for="(answer, index) in shuffledAnswers" 
+              :key="index"
+              class="answer-card"
+              :class="{ 'selected-answer-questioner': selectedPlayer === answer.playerId }"
+              @click="selectPlayer(answer.playerId)"
             >
-              <el-avatar :size="50">{{ player.nickname.charAt(0) }}</el-avatar>
-              <div class="player-name">{{ player.nickname }}</div>
-              <div class="player-answer">{{ player.answer }}</div>
-              <div class="model-guess" v-if="isQuestioner">
-                <el-select 
-                  v-model="modelGuesses[player.id]" 
-                  placeholder="标记AI模型"
-                  @change="guessModel(player.id)"
-                >
-                  <el-option
-                    v-for="model in availableModels"
-                    :key="model"
-                    :label="model"
-                    :value="model"
-                  />
-                </el-select>
+              <div class="answer-content">
+                <div class="answer-number">{{ index + 1 }}号玩家</div>
+                <div class="answer-text">{{ answer.answer }}</div>
+                <div class="model-guess">
+                  <el-select 
+                    v-model="modelGuesses[answer.playerId]" 
+                    placeholder="标记AI模型"
+                    @change="guessModel(answer.playerId)"
+                  >
+                    <el-option
+                      v-for="model in availableModels"
+                      :key="model"
+                      :label="model"
+                      :value="model"
+                    />
+                  </el-select>
+                </div>
               </div>
-            </div>
+            </el-card>
           </div>
-          <el-button 
-            type="primary" 
-            @click="submitChoice"
-            :disabled="!selectedPlayer"
-          >
-            确认选择
-          </el-button>
+
+          <div class="action-section">
+            <div class="available-models" v-if="availableModels.length">
+              <h4>本局参与的AI模型：</h4>
+              <el-tag 
+                v-for="model in availableModels" 
+                :key="model"
+                class="model-tag"
+              >
+                {{ model }}
+              </el-tag>
+            </div>
+            <el-button 
+              type="primary" 
+              @click="submitChoice"
+              :disabled="!selectedPlayer"
+              class="submit-button"
+            >
+              确认选择
+            </el-button>
+          </div>
         </div>
       </div>
 
       <!-- 回答者界面 -->
       <div v-else class="answerer-view">
         <div v-if="gameState === 'asking'">
-          <h3>等待提问者提问...</h3>
+          <h3>等待提问者提问<span class="loading-dots">{{ loadingDots }}</span></h3>
+          <div class="suggested-questions-hint">本轮的建议问题是：</div>
           <div class="suggested-questions disabled">
             <div 
               v-for="(q, index) in suggestedQuestions" 
@@ -133,8 +144,29 @@
           </el-button>
         </div>
 
-        <div v-if="gameState === 'choosing'">
-          <h3>等待提问者选择...</h3>
+        <div v-if="gameState === 'choosing'" class="answers-section">
+          <div class="question-display">
+            <h3>问题：{{ currentQuestion }}</h3>
+          </div>
+          
+          <div class="answers-list">
+            <h3>所有回答<span class="hint-text">（提问者正在选择最像真人的回答）</span></h3>
+            <el-card 
+              v-for="(answer, index) in shuffledAnswers" 
+              :key="index"
+              class="answer-card non-clickable"
+              :class="{ 'selected-answer-answerer': selectedPlayer === answer.playerId }"
+            >
+              <div class="answer-content">
+                <div class="answer-number">{{ index + 1 }}号玩家</div>
+                <div class="answer-text">{{ answer.answer }}</div>
+              </div>
+            </el-card>
+          </div>
+
+          <div class="waiting-text">
+            等待提问者选择<span class="loading-dots">{{ loadingDots }}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -142,7 +174,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useStore } from 'vuex'
 import socket from '../socket'
@@ -154,6 +186,7 @@ const currentRound = ref(1)
 const score = ref(0)
 const gameState = ref('asking') // asking, answering, choosing, waiting
 const isQuestioner = ref(false)
+const currentQuestion = ref('')
 const suggestedQuestions = ref([
   "你最喜欢的一本书是什么？为什么？",
   "如果可以选择一个超能力，你会选择什么？",
@@ -161,7 +194,6 @@ const suggestedQuestions = ref([
 ])
 const selectedQuestion = ref('')
 const customQuestion = ref('')
-const currentQuestion = ref('')
 const answer = ref('')
 const timer = ref(10)
 const players = ref([])
@@ -172,6 +204,13 @@ const waitingProgress = ref(0)
 const loadingDots = ref('...')
 let timerInterval = null
 let loadingInterval = null
+
+const answers = ref([])
+
+const shuffledAnswers = computed(() => {
+  if (!answers.value.length) return [];
+  return [...answers.value].sort(() => Math.random() - 0.5);
+});
 
 onMounted(() => {
   // 初始化游戏状态
@@ -195,16 +234,29 @@ const initializeGame = () => {
   isQuestioner.value = store.state.game.isQuestioner
   availableModels.value = store.state.game.availableModels || []
   score.value = store.state.game.score
+  currentQuestion.value = store.state.game.currentQuestion
+  answers.value = store.state.game.answers
 }
 
 const setupSocketListeners = () => {
   // 设置Socket.IO事件监听
-  socket.on('allAnswersReceived', () => {
+  socket.on('questionReceived', ({ question }) => {
+    currentQuestion.value = question
+    if (!isQuestioner.value) {
+      gameState.value = 'answering'
+    }
+  })
+
+  socket.on('allAnswersReceived', ({ answers: receivedAnswers }) => {
+    answers.value = receivedAnswers
     gameState.value = 'choosing'
     if (loadingInterval) {
       clearInterval(loadingInterval)
     }
-    waitingProgress.value = 100
+  })
+
+  socket.on('playerSelected', ({ playerId }) => {
+    selectedPlayer.value = playerId
   })
 
   socket.on('modelGuessResult', ({ correct, score: newScore }) => {
@@ -228,7 +280,8 @@ const setupSocketListeners = () => {
 }
 
 const submitQuestion = () => {
-  const question = customQuestion.value || selectedQuestion.value
+  const question = customQuestion.value
+  currentQuestion.value = question
   store.dispatch('game/submitQuestion', question)
   gameState.value = 'waiting'
   startLoadingAnimation()
@@ -248,7 +301,10 @@ const submitAnswer = () => {
 }
 
 const selectPlayer = (playerId) => {
+  if (!isQuestioner.value) return
   selectedPlayer.value = playerId
+  // 广播选择给其他玩家
+  socket.emit('selectPlayer', { playerId })
 }
 
 const submitChoice = () => {
@@ -427,5 +483,120 @@ const selectSuggestedQuestion = (q) => {
 .waiting-text {
   margin: 20px 0;
   color: #606266;
+}
+
+.answers-section {
+  padding: 20px;
+}
+
+.question-display {
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.answers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.answer-card {
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.answer-card:not(.non-clickable):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.non-clickable {
+  cursor: default;
+}
+
+.selected-answer-questioner {
+  border: 2px solid #409EFF;
+}
+
+.selected-answer-answerer {
+  border: 2px solid #E6A23C;
+  background-color: rgba(230, 162, 60, 0.1);
+}
+
+.answer-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.answer-number {
+  font-weight: bold;
+  color: #409EFF;
+}
+
+.answer-text {
+  font-size: 1.1em;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.action-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  margin-top: 20px;
+}
+
+.model-guess {
+  margin-top: 10px;
+}
+
+.available-models {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.model-tag {
+  margin: 0 5px;
+}
+
+.waiting-text {
+  text-align: center;
+  color: #606266;
+  margin-top: 20px;
+  font-size: 1.1em;
+}
+
+.suggested-questions-hint {
+  margin: 20px 0 10px;
+  color: #606266;
+  font-size: 1.1em;
+}
+
+.loading-dots {
+  display: inline-block;
+  min-width: 24px;
+}
+
+.hint-text {
+  font-size: 0.9em;
+  color: #909399;
+  font-weight: normal;
+  margin-left: 8px;
+}
+
+@keyframes loading {
+  0% { content: ''; }
+  25% { content: '.'; }
+  50% { content: '..'; }
+  75% { content: '...'; }
+  100% { content: ''; }
+}
+
+.loading-dots::after {
+  content: '';
+  animation: loading 2s infinite steps(4);
 }
 </style>

@@ -184,6 +184,7 @@ io.on('connection', (socket) => {
     if (!game) return;
 
     game.currentQuestion = question;
+    game.answers = new Map(); // 重置答案
     
     // 广播问题给所有玩家
     io.to(gameId).emit('questionReceived', { question });
@@ -192,6 +193,59 @@ io.on('connection', (socket) => {
     for (const aiPlayer of game.aiPlayers) {
       const aiAnswer = await generateAIAnswer(question, aiPlayer.modelKey);
       game.answers.set(aiPlayer.id, aiAnswer);
+    }
+
+    // 检查是否所有答案都已收到
+    const checkAllAnswers = () => {
+      const humanAnswered = game.answers.has(game.humanPlayer.id);
+      const allAIAnswered = game.aiPlayers.every(ai => game.answers.has(ai.id));
+      
+      if (humanAnswered && allAIAnswered) {
+        // 所有答案都已收到，通知所有玩家
+        io.to(gameId).emit('allAnswersReceived', {
+          answers: Array.from(game.answers.entries()).map(([id, answer]) => ({
+            playerId: id,
+            answer
+          }))
+        });
+      }
+    };
+
+    // 设置超时，确保AI回答完成后检查
+    setTimeout(checkAllAnswers, 1000);
+  });
+
+  socket.on('selectPlayer', ({ playerId }) => {
+    // 找到玩家所在的游戏
+    const game = Array.from(gameState.activeGames.values()).find(g => 
+      g.questioner.id === socket.id
+    );
+    
+    if (game) {
+      // 广播选择给所有玩家
+      io.to(game.id).emit('playerSelected', { playerId });
+    }
+  });
+
+  socket.on('submitAnswer', ({ gameId, answer }) => {
+    const game = gameState.activeGames.get(gameId);
+    if (!game || socket.id !== game.humanPlayer.id) return;
+
+    // 保存人类玩家的回答
+    game.answers.set(socket.id, answer);
+
+    // 检查是否所有答案都已收到
+    const humanAnswered = game.answers.has(game.humanPlayer.id);
+    const allAIAnswered = game.aiPlayers.every(ai => game.answers.has(ai.id));
+    
+    if (humanAnswered && allAIAnswered) {
+      // 所有答案都已收到，通知所有玩家
+      io.to(gameId).emit('allAnswersReceived', {
+        answers: Array.from(game.answers.entries()).map(([id, answer]) => ({
+          playerId: id,
+          answer
+        }))
+      });
     }
   });
 
@@ -218,26 +272,6 @@ io.on('connection', (socket) => {
       correct: aiPlayer && aiPlayer.modelName === modelGuess,
       score: game.scores.get(socket.id)
     });
-  });
-
-  socket.on('submitAnswer', ({ gameId, answer }) => {
-    const game = gameState.activeGames.get(gameId);
-    if (!game) return;
-
-    game.answers.set(socket.id, answer);
-
-    // 如果所有回答都收到了
-    if (game.answers.size === game.aiPlayers.length + 1) {
-      game.state = 'choosing';
-      
-      // 发送所有回答给提问者
-      const answersArray = Array.from(game.answers.entries()).map(([id, answer]) => ({
-        playerId: id,
-        answer
-      }));
-      
-      game.questioner.socket.emit('answersReceived', { answers: answersArray });
-    }
   });
 
   socket.on('submitChoice', ({ gameId, playerId }) => {
