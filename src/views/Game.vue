@@ -9,34 +9,46 @@
       <!-- 提问者界面 -->
       <div v-if="isQuestioner" class="questioner-view">
         <div v-if="gameState === 'asking'" class="question-section">
-          <h3>请选择或输入一个问题：</h3>
-          <div class="suggested-questions">
-            <el-radio-group v-model="selectedQuestion">
-              <el-radio 
-                v-for="(q, index) in suggestedQuestions" 
-                :key="index" 
-                :label="q"
-                class="question-option"
-              >
-                {{ q }}
-              </el-radio>
-            </el-radio-group>
-          </div>
+          <h3>请输入或选择一个问题：</h3>
           <div class="custom-question">
             <el-input
               v-model="customQuestion"
               type="textarea"
-              placeholder="或者输入自定义问题"
-              :rows="2"
+              placeholder="请输入问题或点击下方推荐问题"
+              :rows="3"
             />
+            <el-button 
+              type="primary" 
+              @click="submitQuestion"
+              :disabled="!customQuestion"
+              class="submit-button"
+            >
+              提交问题
+            </el-button>
           </div>
-          <el-button 
-            type="primary" 
-            @click="submitQuestion"
-            :disabled="!selectedQuestion && !customQuestion"
-          >
-            提交问题
-          </el-button>
+          <div class="suggested-questions">
+            <h4>推荐问题：</h4>
+            <div class="question-tags">
+              <el-tag
+                v-for="(q, index) in suggestedQuestions"
+                :key="index"
+                class="question-tag"
+                @click="selectSuggestedQuestion(q)"
+                :effect="customQuestion === q ? 'dark' : 'plain'"
+              >
+                {{ q }}
+              </el-tag>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="gameState === 'waiting'" class="waiting-section">
+          <el-card class="waiting-card">
+            <div class="waiting-content">
+              <h3>等待回答中<span class="loading-dots">{{ loadingDots }}</span></h3>
+              <p class="waiting-text">等待碳基生物和硅基生物回答...</p>
+            </div>
+          </el-card>
         </div>
 
         <div v-if="gameState === 'choosing'" class="answers-section">
@@ -140,7 +152,7 @@ const store = useStore()
 // 游戏状态
 const currentRound = ref(1)
 const score = ref(0)
-const gameState = ref('asking') // asking, answering, choosing
+const gameState = ref('asking') // asking, answering, choosing, waiting
 const isQuestioner = ref(false)
 const suggestedQuestions = ref([
   "你最喜欢的一本书是什么？为什么？",
@@ -156,8 +168,10 @@ const players = ref([])
 const selectedPlayer = ref(null)
 const availableModels = ref([])
 const modelGuesses = ref({})
-
-let timerInterval
+const waitingProgress = ref(0)
+const loadingDots = ref('...')
+let timerInterval = null
+let loadingInterval = null
 
 onMounted(() => {
   // 初始化游戏状态
@@ -168,7 +182,12 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  clearInterval(timerInterval)
+  if (loadingInterval) {
+    clearInterval(loadingInterval)
+  }
+  if (timerInterval) {
+    clearInterval(timerInterval)
+  }
 })
 
 const initializeGame = () => {
@@ -180,6 +199,14 @@ const initializeGame = () => {
 
 const setupSocketListeners = () => {
   // 设置Socket.IO事件监听
+  socket.on('allAnswersReceived', () => {
+    gameState.value = 'choosing'
+    if (loadingInterval) {
+      clearInterval(loadingInterval)
+    }
+    waitingProgress.value = 100
+  })
+
   socket.on('modelGuessResult', ({ correct, score: newScore }) => {
     score.value = newScore
     ElMessage({
@@ -203,7 +230,16 @@ const setupSocketListeners = () => {
 const submitQuestion = () => {
   const question = customQuestion.value || selectedQuestion.value
   store.dispatch('game/submitQuestion', question)
-  gameState.value = 'answering'
+  gameState.value = 'waiting'
+  startLoadingAnimation()
+}
+
+const startLoadingAnimation = () => {
+  let count = 0
+  loadingInterval = setInterval(() => {
+    count = (count + 1) % 4
+    loadingDots.value = '.'.repeat(count)
+  }, 500)
 }
 
 const submitAnswer = () => {
@@ -229,6 +265,10 @@ const guessModel = (playerId) => {
     playerId,
     modelGuess: modelGuesses.value[playerId]
   })
+}
+
+const selectSuggestedQuestion = (q) => {
+  customQuestion.value = q
 }
 </script>
 
@@ -275,11 +315,9 @@ const guessModel = (playerId) => {
   margin: 20px 0;
 }
 
-.question-option {
-  text-align: left;
-  padding: 10px;
-  border: 1px solid #DCDFE6;
-  border-radius: 4px;
+.question-tag {
+  cursor: pointer;
+  margin: 5px;
 }
 
 .custom-question {
@@ -358,5 +396,36 @@ const guessModel = (playerId) => {
 
 .model-guess {
   margin-top: 10px;
+}
+
+.submit-button {
+  margin-top: 10px;
+}
+
+.waiting-section {
+  margin: 20px 0;
+}
+
+.waiting-card {
+  margin: 20px 0;
+}
+
+.waiting-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  text-align: center;
+}
+
+.loading-dots {
+  display: inline-block;
+  min-width: 24px;
+  text-align: left;
+}
+
+.waiting-text {
+  margin: 20px 0;
+  color: #606266;
 }
 </style>
