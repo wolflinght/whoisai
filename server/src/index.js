@@ -35,14 +35,17 @@ const gameState = {
 // 创建新游戏
 function createNewGame(players) {
   const gameId = Date.now().toString();
+  
+  // 随机选择一个真人玩家作为提问者
   const questioner = players[Math.floor(Math.random() * players.length)];
-  const humanPlayer = players.find(p => p !== questioner);
+  const otherPlayer = players.find(p => p.id !== questioner.id);
   
   // 随机选择3个AI模型
   const selectedModels = getRandomModels(3);
   const aiPlayers = selectedModels.map((modelKey, index) => ({
     id: `ai-${index}`,
-    nickname: `玩家${index + 1}`,
+    nickname: AI_MODELS[modelKey].name,
+    avatar: `/avatars/ai${index + 1}.png`,
     isAI: true,
     modelKey,
     modelName: AI_MODELS[modelKey].name
@@ -51,18 +54,26 @@ function createNewGame(players) {
   const game = {
     id: gameId,
     questioner,
-    humanPlayer,
+    humanPlayer: otherPlayer,
     aiPlayers,
     round: 1,
     scores: new Map(),
     currentQuestion: null,
     answers: new Map(),
-    modelGuesses: new Map(), // 存储提问者对AI模型的猜测
-    state: 'asking'
+    modelGuesses: new Map(),
+    state: 'intro',
+    players: [questioner, otherPlayer, ...aiPlayers].map(player => ({
+      id: player.id,
+      nickname: player.nickname,
+      avatar: player.avatar,
+      isQuestioner: player.id === questioner.id,
+      isAI: player.isAI || false,
+      isReady: false
+    }))
   };
 
   game.scores.set(questioner.id, 0);
-  game.scores.set(humanPlayer.id, 0);
+  game.scores.set(otherPlayer.id, 0);
   
   gameState.activeGames.set(gameId, game);
   return game;
@@ -76,7 +87,8 @@ io.on('connection', (socket) => {
     const player = {
       id: socket.id,
       nickname,
-      socket
+      socket,
+      avatar: `/avatars/avatar${Math.floor(Math.random() * 6) + 1}.png`
     };
 
     // 将玩家添加到等待列表
@@ -105,9 +117,11 @@ io.on('connection', (socket) => {
         player.socket.emit('gameStart', {
           gameId: game.id,
           isQuestioner,
-          players: [...game.aiPlayers, game.humanPlayer].map(p => ({
+          players: game.players.map(p => ({
             id: p.id,
-            nickname: p.nickname
+            nickname: p.nickname,
+            avatar: p.avatar,
+            isQuestioner: p.id === game.questioner.id
           })),
           availableModels: isQuestioner ? game.aiPlayers.map(p => p.modelName) : null
         });
@@ -142,20 +156,42 @@ io.on('connection', (socket) => {
     });
   });
 
+  socket.on('playerReady', ({ gameId }) => {
+    const game = gameState.activeGames.get(gameId);
+    if (!game) return;
+
+    // 更新玩家准备状态
+    const player = game.players.find(p => p.id === socket.id);
+    if (player) {
+      player.isReady = true;
+      // 广播玩家准备状态
+      io.to(gameId).emit('playerReady', socket.id);
+
+      // 检查是否所有人类玩家都已准备
+      const humanPlayers = game.players.filter(p => !p.isAI);
+      const allReady = humanPlayers.every(p => p.isReady);
+
+      if (allReady) {
+        // 更新游戏状态并广播游戏开始
+        game.state = 'questioning';
+        io.to(gameId).emit('gameStart');
+      }
+    }
+  });
+
   socket.on('submitQuestion', async ({ gameId, question }) => {
     const game = gameState.activeGames.get(gameId);
     if (!game) return;
 
     game.currentQuestion = question;
-    game.state = 'answering';
-
-    // 发送问题给所有玩家
+    
+    // 广播问题给所有玩家
     io.to(gameId).emit('questionReceived', { question });
 
-    // 生成AI回答
+    // 为AI生成回答
     for (const aiPlayer of game.aiPlayers) {
-      const { answer } = await generateAIAnswer(question, aiPlayer.modelKey);
-      game.answers.set(aiPlayer.id, answer);
+      const aiAnswer = await generateAIAnswer(question, aiPlayer.modelKey);
+      game.answers.set(aiPlayer.id, aiAnswer);
     }
   });
 

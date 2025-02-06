@@ -91,7 +91,7 @@ const setupSocketListeners = () => {
     console.log('Game start received:', gameData)
     clearInterval(progressInterval)
     store.dispatch('game/initializeGame', gameData)
-    router.push('/game')
+    router.push('/game-intro')
   })
 
   // 监听错误

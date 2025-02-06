@@ -1,6 +1,4 @@
-import { io } from 'socket.io-client'
-
-const socket = io('http://localhost:3000')
+import { socket } from '../socket'
 
 const state = {
   gameId: null,
@@ -22,7 +20,10 @@ const mutations = {
     state.isQuestioner = isQuestioner
   },
   setPlayers(state, players) {
-    state.players = players
+    state.players = players.map(player => ({
+      ...player,
+      isReady: false
+    }))
   },
   setCurrentQuestion(state, question) {
     state.currentQuestion = question
@@ -41,6 +42,12 @@ const mutations = {
   },
   setAnswers(state, answers) {
     state.answers = answers
+  },
+  updatePlayerReady(state, playerId) {
+    const player = state.players.find(p => p.id === playerId)
+    if (player) {
+      player.isReady = true
+    }
   }
 }
 
@@ -54,7 +61,7 @@ const actions = {
     commit('setIsQuestioner', isQuestioner)
     commit('setPlayers', players)
     commit('setAvailableModels', availableModels)
-    commit('setGameState', 'asking')
+    commit('setGameState', 'intro')
   },
 
   submitQuestion({ state, commit }, question) {
@@ -97,6 +104,17 @@ const actions = {
     if (gameState) commit('setGameState', gameState)
     if (score !== undefined) commit('setScore', score)
     if (round) commit('setRound', round)
+  },
+
+  setPlayerReady({ state }, gameId) {
+    console.log('Setting player ready, gameId:', gameId)
+    socket.emit('playerReady', {
+      gameId: gameId
+    })
+  },
+
+  updatePlayerReadyStatus({ commit }, playerId) {
+    commit('updatePlayerReady', playerId)
   }
 }
 
@@ -104,32 +122,6 @@ const getters = {
   isGameStarted: state => state.gameState !== 'waiting',
   currentPlayerAnswers: state => state.answers[state.round] || {},
 }
-
-// 设置 Socket.IO 事件监听
-socket.on('gameStart', ({ isQuestioner, gameId, players, availableModels }) => {
-  store.commit('initializeGame', { gameId, isQuestioner, players, availableModels })
-})
-
-socket.on('playersUpdate', ({ players }) => {
-  store.commit('setPlayers', players)
-})
-
-socket.on('questionReceived', ({ question }) => {
-  store.commit('setCurrentQuestion', question)
-  store.commit('setGameState', 'answering')
-})
-
-socket.on('answersReceived', ({ answers }) => {
-  store.commit('updateAnswers', answers)
-})
-
-socket.on('roundResult', ({ correct, score, round }) => {
-  store.commit('updateGameState', { score, round })
-})
-
-socket.on('gameOver', ({ winner, finalScore }) => {
-  store.commit('setGameState', 'finished')
-})
 
 export default {
   namespaced: true,

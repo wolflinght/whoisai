@@ -6,6 +6,7 @@ import { createStore } from 'vuex'
 import App from './App.vue'
 import Home from './views/Home.vue'
 import Game from './views/Game.vue'
+import GameIntro from './views/GameIntro.vue'
 import gameModule from './store/game'
 import { socket } from './socket'
 
@@ -14,6 +15,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', component: Home },
+    { path: '/game-intro', component: GameIntro },
     { path: '/game', component: Game }
   ]
 })
