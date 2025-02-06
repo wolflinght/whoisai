@@ -32,7 +32,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useStore } from 'vuex'
-import { socket } from '../socket'
+import socket from '../socket'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()

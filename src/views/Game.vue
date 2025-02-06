@@ -131,8 +131,9 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { useStore } from 'vuex'
 import { ElMessage } from 'element-plus'
+import { useStore } from 'vuex'
+import socket from '../socket'
 
 const store = useStore()
 

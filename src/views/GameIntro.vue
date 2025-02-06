@@ -226,7 +226,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useStore } from 'vuex'
 import { useRouter } from 'vue-router'
-import { socket } from '../socket'
+import socket from '../socket'
 
 const store = useStore()
 const router = useRouter()

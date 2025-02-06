@@ -8,7 +8,7 @@ import Home from './views/Home.vue'
 import Game from './views/Game.vue'
 import GameIntro from './views/GameIntro.vue'
 import gameModule from './store/game'
-import { socket } from './socket'
+import socket from './socket'
 
 // 创建路由
 const router = createRouter({
