@@ -69,6 +69,13 @@ const mutations = {
     state.availableModels = []
     state.answers = []
     state.remainingAI = 0
+  },
+  resetPlayers(state) {
+    // 重置所有玩家的准备状态
+    state.players = state.players.map(player => ({
+      ...player,
+      isReady: false
+    }))
   }
 }
 

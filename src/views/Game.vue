@@ -17,7 +17,7 @@
       </div>
 
       <!-- 提问者界面 -->
-      <div v-if="isQuestioner" class="questioner-view">
+      <div v-if="isQuestioner && gameState !== 'gameOver'" class="questioner-view">
         <div v-if="gameState === 'asking'" class="question-section">
           <h3>请输入或选择一个问题：</h3>
           <div class="custom-question">
@@ -127,7 +127,7 @@
       </div>
 
       <!-- 回答者界面 -->
-      <div v-else class="answerer-view">
+      <div v-else-if="!isQuestioner && gameState !== 'gameOver'" class="answerer-view">
         <div v-if="gameState === 'asking'">
           <h3>等待提问者提问<span class="loading-dots">{{ loadingDots }}</span></h3>
           <div class="suggested-questions-hint">本轮的建议问题是：</div>
@@ -195,6 +195,16 @@
             等待提问者选择<span class="loading-dots">{{ loadingDots }}</span>
           </div>
         </div>
+      </div>
+
+      <!-- 游戏结束状态 -->
+      <div v-else-if="gameState === 'gameOver'" class="game-over-section">
+        <el-card class="waiting-card">
+          <div class="waiting-content">
+            <h3>游戏已结束</h3>
+            <p class="waiting-text">请点击"返回大厅"按钮继续</p>
+          </div>
+        </el-card>
       </div>
     </div>
     <el-dialog
@@ -383,12 +393,15 @@ const handleGameOver = (message) => {
     '每轮找出真人的得分：第1轮8分，第2轮4分，第3轮2分，第4轮0分\n猜对AI模型：+4分（消耗2分）' :
     '存活得分：第1轮2分，第2轮4分，第3轮8分'
 
-  // 设置游戏状态为等待，但保持玩家列表
-  store.commit('game/setGameState', 'waiting')
+  // 设置游戏状态为结束
+  store.commit('game/setGameState', 'gameOver')
+  gameState.value = 'gameOver'
 }
 
 const returnToIntro = () => {
   showGameOverDialog.value = false
+  // 重置所有玩家的准备状态
+  store.commit('game/resetPlayers')
   router.push('/game-intro')
 }
 
