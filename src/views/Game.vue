@@ -358,11 +358,11 @@ const setupSocketListeners = () => {
 
 const handleGameOver = (message) => {
   showGameOverDialog.value = true
-  gameOverTitle.value = isQuestioner.value ? '提问者游戏结束' : '回答者游戏结束'
+  gameOverTitle.value = isQuestioner.value ? '游戏结束' : '游戏结束'
   
   if (isQuestioner.value) {
     if (message.includes('选中了真人')) {
-      gameOverMessage.value = `恭喜，第${currentRound.value}轮就找到了真人玩家！`
+      gameOverMessage.value = `恭喜！在第${currentRound.value}轮找到了真人玩家！`
     } else if (message.includes('所有AI')) {
       gameOverMessage.value = '所有AI玩家都被找出来了，但真人玩家成功存活到最后！'
     } else {
@@ -370,7 +370,7 @@ const handleGameOver = (message) => {
     }
   } else {
     if (message.includes('选中了真人')) {
-      gameOverMessage.value = `可惜，止步于第${currentRound.value}轮`
+      gameOverMessage.value = `可惜，在第${currentRound.value}轮被发现了`
     } else if (message.includes('所有AI')) {
       gameOverMessage.value = '恭喜你！所有AI都被找出来了，你成功存活到最后！'
     } else {
