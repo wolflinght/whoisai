@@ -173,6 +173,13 @@
               class="answer-card non-clickable"
               :class="{ 'selected-answer-answerer': selectedPlayer === answer.playerId }"
             >
+              <div 
+                v-if="answer.tauntMessage" 
+                class="taunt-bubble"
+                :style="{ opacity: selectedPlayer === answer.playerId ? 1 : 0 }"
+              >
+                {{ answer.tauntMessage }}
+              </div>
               <div class="answer-content">
                 <div class="answer-number">{{ index + 1 }}号玩家</div>
                 <div class="answer-text">{{ answer.answer }}</div>
@@ -583,6 +590,7 @@ const selectSuggestedQuestion = (q) => {
   cursor: pointer;
   transition: all 0.3s ease;
   position: relative;
+  overflow: visible;
 }
 
 .answer-card:not(.non-clickable):hover {
@@ -603,21 +611,30 @@ const selectSuggestedQuestion = (q) => {
   background-color: rgba(230, 162, 60, 0.1);
 }
 
+.selected-answer-answerer .taunt-bubble {
+  opacity: 1;
+  transform: scale(1);
+}
+
 .answer-content {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 15px;
+  position: relative;
 }
 
 .answer-number {
   font-weight: bold;
   color: #409EFF;
+  margin-bottom: 10px;
 }
 
 .answer-text {
   font-size: 1.1em;
   line-height: 1.5;
   white-space: pre-wrap;
+  color: #2c3e50;
 }
 
 .action-section {
@@ -669,42 +686,29 @@ const selectSuggestedQuestion = (q) => {
 .taunt-bubble {
   position: absolute;
   top: -60px;
-  left: 50%;
-  transform: translateX(-50%);
-  background-color: #F56C6C;
+  right: 20px;
+  background: #ff4757;
   color: white;
   padding: 10px 15px;
   border-radius: 8px;
-  font-size: 0.9em;
-  max-width: 200px;
-  text-align: center;
+  font-size: 14px;
+  max-width: 300px;
+  z-index: 10;
   opacity: 0;
-  transition: opacity 0.3s ease;
-  z-index: 1;
+  transform-origin: bottom right;
+  transform: scale(0.8);
+  transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  box-shadow: 0 4px 12px rgba(255, 71, 87, 0.3);
 }
 
 .taunt-bubble::after {
   content: '';
   position: absolute;
   bottom: -8px;
-  left: 50%;
-  transform: translateX(-50%);
+  right: 20px;
   border-left: 8px solid transparent;
   border-right: 8px solid transparent;
-  border-top: 8px solid #F56C6C;
-}
-
-@keyframes loading {
-  0% { content: ''; }
-  25% { content: '.'; }
-  50% { content: '..'; }
-  75% { content: '...'; }
-  100% { content: ''; }
-}
-
-.loading-dots::after {
-  content: '';
-  animation: loading 2s infinite steps(4);
+  border-top: 8px solid #ff4757;
 }
 
 .answering-section {
