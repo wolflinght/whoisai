@@ -305,6 +305,12 @@ const setupSocketListeners = () => {
     }, 1000)
   })
 
+  socket.on('playerSelected', ({ playerId, selectedBy }) => {
+    console.log(`[playerSelected] Player selected: ${playerId} by ${selectedBy}`);
+    // 更新被选中的玩家
+    selectedPlayer.value = playerId;
+  })
+
   socket.on('gameOver', ({ winner, finalScore, reason }) => {
     let message = '';
     if (reason === 'humanFound') {
@@ -359,10 +365,10 @@ const submitAnswer = () => {
 }
 
 const selectPlayer = (playerId) => {
-  if (!isQuestioner.value) return
-  selectedPlayer.value = playerId
-  // 广播选择给其他玩家
-  socket.emit('selectPlayer', { playerId })
+  console.log(`[selectPlayer] Selecting player: ${playerId}`);
+  selectedPlayer.value = playerId;
+  socket.emit('selectPlayer', { playerId });
+  console.log(`[selectPlayer] Selection event emitted`);
 }
 
 const submitChoice = () => {

@@ -268,8 +268,19 @@ io.on('connection', (socket) => {
     );
     
     if (game) {
+      console.log(`[selectPlayer] Broadcasting selection to game ${game.id}. Selected player: ${playerId}`);
+      console.log(`[selectPlayer] Current players in game:`, game.players.map(p => p.id));
+      
       // 广播选择给所有玩家
-      io.to(game.id).emit('playerSelected', { playerId });
+      io.in(game.id).emit('playerSelected', { 
+        playerId,
+        selectedBy: socket.id 
+      });
+      
+      // 确认消息已发送
+      console.log(`[selectPlayer] Selection broadcast completed`);
+    } else {
+      console.log(`[selectPlayer] Game not found for questioner ${socket.id}`);
     }
   });
 
