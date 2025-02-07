@@ -9,6 +9,7 @@ const {
   generateAIAnswer, 
   generateSuggestedQuestions 
 } = require('./services/ai');
+const { db, upsertPlayer, updatePlayerScore, getPlayer, getLeaderboard } = require('./database');
 
 const app = express();
 app.use(cors());
@@ -95,53 +96,82 @@ io.on('connection', (socket) => {
   console.log('New client connected');
 
   socket.on('startMatching', async ({ nickname }) => {
-    console.log(`Player ${nickname} started matching`);
-    const player = {
-      id: socket.id,
-      nickname,
-      socket,
-      avatar: `/avatars/avatar${Math.floor(Math.random() * 6) + 1}.png`
-    };
+    try {
+      // 保存或更新玩家信息
+      const result = await upsertPlayer(socket.id, nickname);
+      
+      // 如果是已存在的玩家，更新socket ID
+      if (result.isExisting) {
+        // 断开可能存在的旧连接
+        const oldSocket = gameState.playerSockets.get(result.id);
+        if (oldSocket) {
+          oldSocket.disconnect(true);
+          gameState.playerSockets.delete(result.id);
+          
+          // 从等待列表中移除旧连接
+          gameState.waitingPlayers = gameState.waitingPlayers.filter(p => p.id !== result.id);
+        }
+        
+        // 更新socket ID为新的连接
+        socket.id = result.id;
+      }
+      
+      // 获取玩家信息
+      const playerInfo = await getPlayer(socket.id);
+      console.log('Player joined:', { id: socket.id, nickname, playerInfo });
+      
+      // 开始匹配
+      console.log(`Player ${nickname} started matching`);
+      const player = {
+        id: socket.id,
+        nickname,
+        socket,
+        avatar: `/avatars/avatar${Math.floor(Math.random() * 6) + 1}.png`
+      };
 
-    // 将玩家添加到等待列表
-    gameState.waitingPlayers.push(player);
-    gameState.playerSockets.set(socket.id, socket);
+      // 将玩家添加到等待列表
+      gameState.waitingPlayers.push(player);
+      gameState.playerSockets.set(socket.id, socket);
 
-    // 广播当前等待玩家数量
-    io.emit('matchingUpdate', {
-      count: gameState.waitingPlayers.length
-    });
-
-    // 如果有足够的玩家，开始游戏
-    if (gameState.waitingPlayers.length >= 2) {
-      console.log('Starting new game with players:', gameState.waitingPlayers.map(p => p.nickname));
-      const players = gameState.waitingPlayers.splice(0, 2);
-      const game = createNewGame(players);
-
-      // 将玩家加入到游戏房间
-      players.forEach(player => {
-        player.socket.join(game.id);
+      // 广播当前等待玩家数量
+      io.emit('matchingUpdate', {
+        count: gameState.waitingPlayers.length
       });
 
-      // 通知玩家游戏开始
-      players.forEach(player => {
-        const isQuestioner = player.id === game.questioner.id;
-        player.socket.emit('gameStart', {
-          gameId: game.id,
-          isQuestioner,
-          players: game.players.map(p => ({
-            id: p.id,
-            nickname: p.nickname,
-            avatar: p.avatar,
-            isQuestioner: p.id === game.questioner.id
-          })),
-          availableModels: isQuestioner ? game.aiPlayers.map(p => p.modelName) : null
+      // 如果有足够的玩家，开始游戏
+      if (gameState.waitingPlayers.length >= 2) {
+        console.log('Starting new game with players:', gameState.waitingPlayers.map(p => p.nickname));
+        const players = gameState.waitingPlayers.splice(0, 2);
+        const game = createNewGame(players);
+
+        // 将玩家加入到游戏房间
+        players.forEach(player => {
+          player.socket.join(game.id);
         });
-      });
 
-      // 生成并发送推荐问题给提问者
-      const suggestedQuestions = await generateSuggestedQuestions();
-      game.questioner.socket.emit('suggestedQuestions', { questions: suggestedQuestions });
+        // 通知玩家游戏开始
+        players.forEach(player => {
+          const isQuestioner = player.id === game.questioner.id;
+          player.socket.emit('gameStart', {
+            gameId: game.id,
+            isQuestioner,
+            players: game.players.map(p => ({
+              id: p.id,
+              nickname: p.nickname,
+              avatar: p.avatar,
+              isQuestioner: p.id === game.questioner.id
+            })),
+            availableModels: isQuestioner ? game.aiPlayers.map(p => p.modelName) : null
+          });
+        });
+
+        // 生成并发送推荐问题给提问者
+        const suggestedQuestions = await generateSuggestedQuestions();
+        game.questioner.socket.emit('suggestedQuestions', { questions: suggestedQuestions });
+      }
+    } catch (error) {
+      console.error('Error handling player join:', error);
+      socket.emit('error', { message: '加入游戏失败，昵称可能已被使用' });
     }
   });
 
@@ -390,6 +420,31 @@ io.on('connection', (socket) => {
           isReady: p.isReady
         }))
       });
+    }
+  });
+
+  socket.on('gameOver', async ({ gameId, score }) => {
+    try {
+      // 更新玩家分数
+      await updatePlayerScore(socket.id, score);
+      
+      // 获取最新的排行榜
+      const leaderboard = await getLeaderboard();
+      
+      // 发送更新后的排行榜给所有玩家
+      io.to(gameId).emit('leaderboardUpdate', { leaderboard });
+    } catch (error) {
+      console.error('Error updating player score:', error);
+    }
+  });
+
+  socket.on('getLeaderboard', async () => {
+    try {
+      const leaderboard = await getLeaderboard();
+      socket.emit('leaderboardUpdate', { leaderboard });
+    } catch (error) {
+      console.error('Error getting leaderboard:', error);
+      socket.emit('error', { message: 'Failed to get leaderboard' });
     }
   });
 });

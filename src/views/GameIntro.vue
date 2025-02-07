@@ -39,6 +39,10 @@
       </div>
     </div>
 
+    <div class="leaderboard-section">
+      <Leaderboard />
+    </div>
+
     <div class="ready-section">
       <button 
         class="ready-button" 
@@ -198,6 +202,14 @@
   color: #495057;
 }
 
+.leaderboard-section {
+  background: white;
+  padding: 25px;
+  border-radius: 8px;
+  margin-bottom: 30px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
 .ready-section {
   text-align: center;
   margin-top: 30px;
@@ -232,10 +244,11 @@
 </style>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
-import { useStore } from 'vuex'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useStore } from 'vuex'
 import socket from '../socket'
+import Leaderboard from '../components/Leaderboard.vue'
 
 const store = useStore()
 const router = useRouter()
