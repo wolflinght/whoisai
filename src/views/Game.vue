@@ -62,8 +62,34 @@
         </div>
 
         <div v-if="gameState === 'choosing'" class="answers-section">
-          <div class="question-display">
+          <div class="question-section">
             <h3>问题：{{ currentQuestion }}</h3>
+            
+            <!-- 可拖拽的模型标签区域 -->
+            <div class="model-tags-section">
+              <div class="model-tags">
+                <div
+                  v-for="model in availableModelTags"
+                  :key="model"
+                  class="model-tag"
+                  draggable="true"
+                  @dragstart="dragStart($event, model)"
+                  @dragend="dragEnd"
+                >
+                  {{ model }}
+                </div>
+              </div>
+              <div class="model-tags used-tags" v-if="usedModels.size > 0">
+                <div
+                  v-for="model in usedModels"
+                  :key="model"
+                  class="model-tag used"
+                >
+                  {{ model }}
+                </div>
+              </div>
+              <div class="model-tags-hint">拖动上方的标签到回答上标记AI模型，每次标记消耗2分</div>
+            </div>
           </div>
           
           <div class="answers-list">
@@ -72,8 +98,14 @@
               v-for="(answer, index) in shuffledAnswers" 
               :key="index"
               class="answer-card"
-              :class="{ 'selected-answer-questioner': selectedPlayer === answer.playerId }"
+              :class="{ 
+                'selected-answer-questioner': selectedPlayer === answer.playerId,
+                'drag-over': dragOverId === answer.playerId 
+              }"
               @click="selectPlayer(answer.playerId)"
+              @dragover.prevent="dragOver($event, answer.playerId)"
+              @dragleave="dragLeave(answer.playerId)"
+              @drop="dropModel($event, answer.playerId)"
             >
               <div 
                 v-if="answer.tauntMessage" 
@@ -85,35 +117,28 @@
               <div class="answer-content">
                 <div class="answer-number">{{ index + 1 }}号玩家</div>
                 <div class="answer-text">{{ answer.answer }}</div>
-                <div class="model-guess">
-                  <el-select 
-                    v-model="modelGuesses[answer.playerId]" 
-                    placeholder="标记AI模型"
-                    @change="guessModel(answer.playerId)"
+                <div 
+                  class="model-tag-container"
+                  :class="{ 'has-tag': modelGuesses[answer.playerId] }"
+                >
+                  <div v-if="!modelGuesses[answer.playerId]" class="tag-placeholder">
+                    拖放标签到这里
+                  </div>
+                  <div 
+                    v-else
+                    class="model-tag attached"
+                    draggable="true"
+                    @dragstart="dragStart($event, modelGuesses[answer.playerId], answer.playerId)"
                   >
-                    <el-option
-                      v-for="model in availableModels"
-                      :key="model"
-                      :label="model"
-                      :value="model"
-                    />
-                  </el-select>
+                    {{ modelGuesses[answer.playerId] }}
+                    <span class="remove-tag" @click.stop="removeModelGuess(answer.playerId)">×</span>
+                  </div>
                 </div>
               </div>
             </el-card>
           </div>
 
           <div class="action-section">
-            <div class="available-models" v-if="availableModels.length">
-              <h4>本局参与的AI模型：</h4>
-              <el-tag 
-                v-for="model in availableModels" 
-                :key="model"
-                class="model-tag"
-              >
-                {{ model }}
-              </el-tag>
-            </div>
             <el-button 
               type="primary" 
               @click="submitChoice"
@@ -176,6 +201,8 @@
               :key="index"
               class="answer-card non-clickable"
               :class="{ 'selected-answer-answerer': selectedPlayer === answer.playerId }"
+              @dragover.prevent="dragOver($event, answer.playerId)"
+              @drop.prevent="dropModel($event, answer.playerId)"
             >
               <div 
                 v-if="answer.tauntMessage" 
@@ -187,6 +214,20 @@
               <div class="answer-content">
                 <div class="answer-number">{{ index + 1 }}号玩家</div>
                 <div class="answer-text">{{ answer.answer }}</div>
+                <div class="model-guess">
+                  <el-select 
+                    v-model="modelGuesses[answer.playerId]" 
+                    placeholder="标记AI模型"
+                    @change="guessModel(answer.playerId)"
+                  >
+                    <el-option
+                      v-for="model in availableModelTags"
+                      :key="model"
+                      :label="model"
+                      :value="model"
+                    />
+                  </el-select>
+                </div>
               </div>
             </el-card>
           </div>
@@ -260,7 +301,7 @@ const timer = ref(10)
 const players = ref([])
 const selectedPlayer = ref(null)
 const availableModels = ref([])
-const modelGuesses = ref({})
+const modelGuesses = computed(() => store.state.game.modelGuesses)
 const waitingProgress = ref(0)
 const loadingDots = ref('...')
 let timerInterval = null
@@ -451,6 +492,85 @@ const guessModel = (playerId) => {
 const selectSuggestedQuestion = (q) => {
   customQuestion.value = q
 }
+
+// 拖拽相关的状态
+const draggedModel = ref(null)
+const draggedFromPlayerId = ref(null)
+const dragOverId = ref(null)
+
+// 开始拖拽
+const dragStart = (event, model, playerId = null) => {
+  draggedModel.value = model
+  draggedFromPlayerId.value = playerId
+  event.dataTransfer.effectAllowed = 'move'
+}
+
+// 结束拖拽
+const dragEnd = () => {
+  draggedModel.value = null
+  draggedFromPlayerId.value = null
+  dragOverId.value = null
+}
+
+// 拖拽经过
+const dragOver = (event, playerId) => {
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'move'
+  dragOverId.value = playerId
+}
+
+// 拖拽离开
+const dragLeave = (playerId) => {
+  if (dragOverId.value === playerId) {
+    dragOverId.value = null
+  }
+}
+
+// 放置模型
+const dropModel = (event, playerId) => {
+  event.preventDefault()
+  if (!draggedModel.value) return
+
+  // 如果是从其他玩家拖过来的，先还原2分
+  if (draggedFromPlayerId.value) {
+    store.dispatch('game/guessModel', {
+      playerId: draggedFromPlayerId.value,
+      modelGuess: null
+    })
+  }
+
+  // 标记新的猜测
+  store.dispatch('game/guessModel', {
+    playerId,
+    modelGuess: draggedModel.value
+  })
+
+  draggedModel.value = null
+  draggedFromPlayerId.value = null
+  dragOverId.value = null
+}
+
+// 移除模型猜测
+const removeModelGuess = (playerId) => {
+  store.dispatch('game/guessModel', {
+    playerId,
+    modelGuess: null
+  })
+}
+
+// 从 store 中获取状态
+const usedModels = computed(() => {
+  const used = new Set()
+  Object.values(modelGuesses.value).forEach(model => {
+    if (model) used.add(model)
+  })
+  return used
+})
+
+// 计算可用的模型标签
+const availableModelTags = computed(() => {
+  return availableModels.value.filter(model => !usedModels.value.has(model))
+})
 </script>
 
 <style scoped>
@@ -609,6 +729,7 @@ const selectSuggestedQuestion = (q) => {
 
 .model-tag {
   margin: 5px;
+  cursor: move;
 }
 
 .model-guess {
@@ -838,5 +959,124 @@ const selectSuggestedQuestion = (q) => {
   color: #606266;
   white-space: pre-line;
   line-height: 1.5;
+}
+
+.model-tags-section {
+  background: #f5f7fa;
+  border-radius: 8px;
+  padding: 15px;
+  margin: 10px 0 20px;
+}
+
+.model-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.model-tags.used-tags {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #dcdfe6;
+}
+
+.model-tags-hint {
+  color: #909399;
+  font-size: 14px;
+  margin-top: 10px;
+  text-align: center;
+}
+
+.model-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  background: #409eff;
+  color: white;
+  border-radius: 4px;
+  cursor: move;
+  user-select: none;
+  position: relative;
+  transition: all 0.3s;
+}
+
+.model-tag.used {
+  background: #909399;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.model-tag:not(.used):hover {
+  transform: translateY(-2px);
+}
+
+.model-tag.attached {
+  background: #67c23a;
+  margin: 0;
+}
+
+.model-tag .remove-tag {
+  margin-left: 6px;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.model-tag:hover .remove-tag {
+  opacity: 1;
+}
+
+.model-tag .remove-tag:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+}
+
+.answer-card {
+  position: relative;
+  margin-bottom: 15px;
+  transition: all 0.3s;
+}
+
+.answer-card.drag-over {
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.question-section {
+  margin-bottom: 20px;
+}
+
+.question-section h3 {
+  margin-bottom: 10px;
+}
+
+.model-tag-container {
+  margin-top: 10px;
+  padding: 8px;
+  border: 2px dashed #dcdfe6;
+  border-radius: 4px;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s;
+}
+
+.model-tag-container.has-tag {
+  border-style: solid;
+  border-color: #67c23a;
+  background: rgba(103, 194, 58, 0.1);
+}
+
+.tag-placeholder {
+  color: #909399;
+  font-size: 14px;
+}
+
+.answer-card.drag-over .model-tag-container {
+  border-color: #409eff;
+  background: rgba(64, 158, 255, 0.1);
 }
 </style>

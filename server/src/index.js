@@ -331,24 +331,33 @@ io.on('connection', (socket) => {
     const game = gameState.activeGames.get(gameId);
     if (!game || socket.id !== game.questioner.id) return;
 
-    // 扣除猜测成本
-    const currentScore = game.scores.get(socket.id);
-    if (currentScore < 2) return; // 积分不足
+    // 如果是取消标记，返还2分
+    if (!modelGuess) {
+      game.score += 2;
+      game.modelGuesses.delete(playerId);
+      io.to(game.questioner.id).emit('scoreUpdate', {
+        score: game.score
+      });
+      return;
+    }
 
-    game.scores.set(socket.id, currentScore - 2);
+    // 扣除2分猜测成本
+    if (game.score < 2) return; // 积分不足
+    game.score -= 2;
+
+    // 记录猜测
     game.modelGuesses.set(playerId, modelGuess);
 
     // 检查猜测是否正确
     const aiPlayer = game.aiPlayers.find(p => p.id === playerId);
-    if (aiPlayer && aiPlayer.modelName === modelGuess) {
-      // 猜对了，奖励积分
-      game.scores.set(socket.id, game.scores.get(socket.id) + 4);
+    if (aiPlayer && aiPlayer.modelKey === modelGuess) {
+      // 猜对了，奖励6分
+      game.score += 6;
     }
 
     // 通知提问者结果
-    socket.emit('modelGuessResult', {
-      correct: aiPlayer && aiPlayer.modelName === modelGuess,
-      score: game.scores.get(socket.id)
+    io.to(game.questioner.id).emit('scoreUpdate', {
+      score: game.score
     });
   });
 

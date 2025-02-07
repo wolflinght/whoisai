@@ -10,6 +10,7 @@ const state = {
   round: 1,
   availableModels: [],
   answers: [],
+  modelGuesses: {},
   remainingAI: 0
 }
 
@@ -68,6 +69,7 @@ const mutations = {
     state.round = 1
     state.availableModels = []
     state.answers = []
+    state.modelGuesses = {}
     state.remainingAI = 0
   },
   resetPlayers(state) {
@@ -76,7 +78,17 @@ const mutations = {
       ...player,
       isReady: false
     }))
-  }
+  },
+  updateScore(state, { score }) {
+    state.score = score
+  },
+  updateModelGuess(state, { playerId, modelGuess }) {
+    if (modelGuess === null) {
+      delete state.modelGuesses[playerId]
+    } else {
+      state.modelGuesses[playerId] = modelGuess
+    }
+  },
 }
 
 const actions = {
@@ -118,7 +130,8 @@ const actions = {
     })
   },
 
-  guessModel({ state }, { playerId, modelGuess }) {
+  guessModel({ commit, state }, { playerId, modelGuess }) {
+    commit('updateModelGuess', { playerId, modelGuess })
     socket.emit('guessModel', {
       gameId: state.gameId,
       playerId,
@@ -133,7 +146,7 @@ const actions = {
 
   updateGameState({ commit }, { gameState, score, round }) {
     if (gameState) commit('setGameState', gameState)
-    if (score !== undefined) commit('setScore', score)
+    if (score !== undefined) commit('updateScore', { score })
     if (round) commit('setRound', round)
   },
 
