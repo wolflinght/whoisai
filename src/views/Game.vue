@@ -197,12 +197,31 @@
         </div>
       </div>
     </div>
+    <el-dialog
+      v-model="showGameOverDialog"
+      :title="gameOverTitle"
+      width="30%"
+      :show-close="false"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+    >
+      <div class="game-over-content">
+        <div class="game-over-message">{{ gameOverMessage }}</div>
+        <div class="score-details">
+          <div class="final-score">最终得分：{{ finalScore || 0 }}</div>
+          <div class="score-breakdown">{{ scoreBreakdown }}</div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button type="primary" @click="returnToIntro">返回大厅</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElDialog, ElButton } from 'element-plus'
 import { useStore } from 'vuex'
 import { useRouter } from 'vue-router'
 import socket from '../socket'
@@ -243,6 +262,13 @@ const answers = ref([])
 const shuffledAnswers = computed(() => {
   return answers.value;
 });
+
+// 游戏结束相关状态
+const showGameOverDialog = ref(false)
+const gameOverTitle = ref('')
+const gameOverMessage = ref('')
+const finalScore = ref(0)
+const scoreBreakdown = ref('')
 
 onMounted(() => {
   // 初始化游戏状态
@@ -326,35 +352,44 @@ const setupSocketListeners = () => {
   })
 
   socket.on('gameOver', ({ winner, finalScore, reason }) => {
-    let message = '';
-    if (reason === 'humanFound') {
-      message = '游戏结束！你选中了真人玩家';
-    } else if (reason === 'allAIFound') {
-      message = '游戏结束！所有AI玩家都被找出来了';
-    } else {
-      message = '游戏结束！已达到最大回合数';
-    }
-
-    message += `\n最终得分：${finalScore}`;
-    handleGameOver(message)
+    handleGameOver(reason)
   })
 }
 
 const handleGameOver = (message) => {
-  ElMessage({
-    type: 'success',
-    message,
-    duration: 5000,
-    showClose: true
-  })
+  showGameOverDialog.value = true
+  gameOverTitle.value = isQuestioner.value ? '提问者游戏结束' : '回答者游戏结束'
+  
+  if (isQuestioner.value) {
+    if (message.includes('选中了真人')) {
+      gameOverMessage.value = '恭喜你找出了真人玩家！'
+    } else if (message.includes('所有AI')) {
+      gameOverMessage.value = '所有AI玩家都被找出来了，但真人玩家成功存活到最后！'
+    } else {
+      gameOverMessage.value = '已达到最大回合数，真人玩家成功隐藏到最后！'
+    }
+  } else {
+    if (message.includes('选中了真人')) {
+      gameOverMessage.value = '很遗憾，你被提问者找出来了！'
+    } else if (message.includes('所有AI')) {
+      gameOverMessage.value = '恭喜你！所有AI都被找出来了，你成功存活到最后！'
+    } else {
+      gameOverMessage.value = '恭喜你！成功存活到最后一轮！'
+    }
+  }
+  
+  finalScore.value = score.value
+  scoreBreakdown.value = isQuestioner.value ? 
+    '每轮找出真人的得分：第1轮8分，第2轮4分，第3轮2分，第4轮0分\n猜对AI模型：+4分（消耗2分）' :
+    '存活得分：第1轮2分，第2轮4分，第3轮8分'
 
   // 设置游戏状态为等待，但保持玩家列表
   store.commit('game/setGameState', 'waiting')
+}
 
-  // 延迟2秒后返回介绍页面
-  setTimeout(() => {
-    router.push('/game-intro')
-  }, 2000)
+const returnToIntro = () => {
+  showGameOverDialog.value = false
+  router.push('/game-intro')
 }
 
 const submitQuestion = () => {
@@ -759,5 +794,36 @@ const selectSuggestedQuestion = (q) => {
 
 .submit-answer-button {
   min-width: 120px;
+}
+
+.game-over-content {
+  text-align: center;
+  padding: 20px 0;
+}
+
+.game-over-message {
+  font-size: 18px;
+  color: #409EFF;
+  margin-bottom: 20px;
+}
+
+.score-details {
+  text-align: left;
+  background-color: #f5f7fa;
+  padding: 15px;
+  border-radius: 8px;
+}
+
+.final-score {
+  font-size: 20px;
+  color: #67c23a;
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+
+.score-breakdown {
+  color: #606266;
+  white-space: pre-line;
+  line-height: 1.5;
 }
 </style>
