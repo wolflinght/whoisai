@@ -147,7 +147,6 @@
             placeholder="输入你的回答"
             :rows="3"
           />
-          <div class="timer">剩余时间：{{ timer }}秒</div>
           <el-button 
             type="primary" 
             @click="submitAnswer"
@@ -359,7 +358,10 @@ const selectPlayer = (playerId) => {
   if (!isQuestioner.value) return
   selectedPlayer.value = playerId
   // 广播选择给其他玩家
-  socket.emit('selectPlayer', { playerId })
+  socket.emit('selectPlayer', { 
+    gameId: store.state.game.gameId,
+    selectedPlayerId: playerId 
+  });
 }
 
 const submitChoice = () => {

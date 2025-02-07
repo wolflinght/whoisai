@@ -261,16 +261,12 @@ io.on('connection', (socket) => {
     setTimeout(checkAllAnswers, 1000);
   });
 
-  socket.on('selectPlayer', ({ playerId }) => {
-    // 找到玩家所在的游戏
-    const game = Array.from(gameState.activeGames.values()).find(g => 
-      g.questioner.id === socket.id
-    );
-    
-    if (game) {
-      // 广播选择给所有玩家
-      io.to(game.id).emit('playerSelected', { playerId });
-    }
+  socket.on('selectPlayer', ({ gameId, selectedPlayerId }) => {
+    const game = gameState.activeGames.get(gameId);
+    if (!game) return;
+
+    // 广播选择给所有玩家
+    io.to(gameId).emit('playerSelected', { selectedPlayerId });
   });
 
   socket.on('submitAnswer', ({ gameId, answer }) => {
@@ -324,83 +320,48 @@ io.on('connection', (socket) => {
     const game = gameState.activeGames.get(gameId);
     if (!game) return;
 
-    const selectedPlayer = game.aiPlayers.find(p => p.id === playerId);
-    const isAI = !!selectedPlayer;
+    // 检查是否选中了人类玩家
+    const isHuman = playerId === game.humanPlayer.id;
     let tauntMessage = '';
 
-    if (isAI) {
-      // 如果选择了AI，生成带有模型信息的嘲讽消息
-      const tauntMessages = [
-        `哈哈，我是${selectedPlayer.modelKey}，看来我的回答很像人类呢！`,
-        `身为${selectedPlayer.modelKey}，我成功骗过了你~`,
-        `${selectedPlayer.modelKey}也可以像人类一样有创意！`,
-        `这次我（${selectedPlayer.modelKey}）学会了人类的说话方式！`,
-        `${selectedPlayer.modelKey}的回答让你分不清AI和人类呢！`
-      ];
-      tauntMessage = tauntMessages[Math.floor(Math.random() * tauntMessages.length)];
-
-      // 从游戏中移除这个AI玩家
-      game.aiPlayers = game.aiPlayers.filter(p => p.id !== playerId);
+    if (!isHuman) {
+      // 找到被选中的AI玩家
+      const selectedAI = game.aiPlayers.find(p => p.id === playerId);
+      if (selectedAI) {
+        // 如果选择了AI，生成带有模型信息的嘲讽消息
+        const tauntMessages = [
+          `选错了！这是${selectedAI.modelName}生成的回答...`,
+          `看来${selectedAI.modelName}的回答很像人类呢！`,
+          `${selectedAI.modelName}这次表现得很像人类！`,
+          `这个回答是由${selectedAI.modelName}生成的~`
+        ];
+        tauntMessage = tauntMessages[Math.floor(Math.random() * tauntMessages.length)];
+      }
+    } else {
+      // 选中了人类玩家
+      tauntMessage = '太厉害了！你成功找出了人类玩家！';
     }
 
     // 计算分数
-    const scoreChange = isAI ? -2 : 4;
-    game.score += scoreChange;
+    const scoreChange = isHuman ? 2 : -1;
+    const currentScore = game.scores.get(game.questioner.id) || 0;
+    game.scores.set(game.questioner.id, currentScore + scoreChange);
 
-    // 通知所有玩家结果，只发送一次结果
-    if (!game.resultSent) {
-      io.to(gameId).emit('roundResult', {
-        correct: !isAI,
-        score: game.score,
-        tauntMessage,
-        round: game.round,
-        remainingAI: game.aiPlayers.length
-      });
+    // 通知所有玩家结果
+    io.to(gameId).emit('roundResult', {
+      correct: isHuman,
+      score: currentScore + scoreChange,
+      tauntMessage,
+      selectedPlayerId: playerId
+    });
 
-      // 设置一个标志，防止重复发送结果
-      game.resultSent = true;
-    }
-
-    // 检查游戏是否结束
-    if (!isAI || game.aiPlayers.length === 0 || game.round >= 3) {
-      let reason;
-      if (!isAI) {
-        reason = 'humanFound';
-      } else if (game.aiPlayers.length === 0) {
-        reason = 'allAIFound';
-      } else {
-        reason = 'maxRounds';
-      }
-
-      // 游戏结束，通知所有玩家
+    // 如果选错了，游戏结束
+    if (!isHuman) {
       io.to(gameId).emit('gameOver', {
-        winner: !isAI ? 'questioner' : 'answerers',
-        finalScore: game.score,
-        reason
+        winner: 'AI',
+        finalScore: currentScore + scoreChange,
+        reason: 'incorrect'
       });
-
-      // 重置所有玩家状态为未准备
-      const players = Array.from(io.sockets.adapter.rooms.get(gameId) || []);
-      players.forEach(playerId => {
-        const playerSocket = io.sockets.sockets.get(playerId);
-        if (playerSocket) {
-          playerSocket.data.ready = false;
-        }
-      });
-
-      // 重置游戏状态
-      game.round = 1;
-      game.score = 0;
-      game.currentQuestion = null;
-      game.answers = new Map();
-      game.resultSent = false;
-      game.aiPlayers = generateAIPlayers(); // 重新生成AI玩家
-    } else {
-      // 继续下一轮
-      game.round++;
-      game.currentQuestion = null;
-      game.answers = new Map();
-      game.resultSent = false;
     }
   });
 
