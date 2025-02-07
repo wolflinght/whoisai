@@ -303,8 +303,8 @@ const isReady = computed(() => {
 
 const toggleReady = () => {
   if (!isReady.value) {
-    console.log('Toggling ready state, gameId:', gameId.value)
-    store.dispatch('game/setPlayerReady', gameId.value)
+    console.log('[GameIntro] Sending ready signal, gameId:', gameId.value, 'socket id:', socket.id)
+    socket.emit('playerReady', { gameId: gameId.value })
   }
 }
 
@@ -312,35 +312,41 @@ const toggleReady = () => {
 onMounted(() => {
   // 如果有游戏ID，请求更新玩家列表
   const currentGameId = store.state.game.gameId
-  console.log('Current game ID:', currentGameId)
-  console.log('Current players:', store.state.game.players)
+  console.log('[GameIntro] Mounted, current game ID:', currentGameId)
+  console.log('[GameIntro] Current socket ID:', socket.id)
+  console.log('[GameIntro] Current players:', store.state.game.players)
   
   if (currentGameId) {
-    console.log('Requesting players update for game:', currentGameId)
+    console.log('[GameIntro] Requesting players update for game:', currentGameId)
     socket.emit('requestPlayersUpdate', { gameId: currentGameId })
   }
 
   // 监听玩家列表更新
   socket.on('playersUpdate', ({ players }) => {
-    console.log('Received players update:', players)
+    console.log('[GameIntro] Received players update:', players)
     store.commit('game/setPlayers', players)
   })
 
   socket.on('playerReady', (playerId) => {
-    console.log('Player ready:', playerId)
-    store.dispatch('game/updatePlayerReadyStatus', playerId)
+    console.log('[GameIntro] Player ready event received:', playerId)
+    console.log('[GameIntro] Current socket ID:', socket.id)
+    console.log('[GameIntro] Current players:', store.state.game.players)
+    store.commit('game/updatePlayerReady', playerId)
   })
 
   socket.on('gameStart', () => {
-    console.log('Game starting')
+    console.log('[GameIntro] Game start event received')
+    console.log('[GameIntro] Current game state:', store.state.game)
     store.dispatch('game/updateGameState', { gameState: 'questioning' })
+    router.push('/game')
   })
 
   // 清理事件监听器
-  return () => {
+  onUnmounted(() => {
+    console.log('[GameIntro] Cleaning up event listeners')
     socket.off('playersUpdate')
     socket.off('playerReady')
     socket.off('gameStart')
-  }
+  })
 })
 </script>

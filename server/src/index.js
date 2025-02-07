@@ -93,35 +93,36 @@ function generateAIPlayers() {
 }
 
 io.on('connection', (socket) => {
-  console.log('New client connected');
+  console.log('[Socket] New connection:', socket.id);
 
   socket.on('startMatching', async ({ nickname }) => {
     try {
+      console.log(`[startMatching] Player ${socket.id} (${nickname}) started matching`);
+      console.log(`[startMatching] Current waiting players:`, gameState.waitingPlayers.map(p => p.nickname));
+      
       // 保存或更新玩家信息
       const result = await upsertPlayer(socket.id, nickname);
       
       // 如果是已存在的玩家，更新socket ID
       if (result.isExisting) {
+        console.log(`[startMatching] Existing player found:`, result);
         // 断开可能存在的旧连接
         const oldSocket = gameState.playerSockets.get(result.id);
-        if (oldSocket) {
+        if (oldSocket && oldSocket.id !== socket.id) {
+          console.log(`[startMatching] Disconnecting old socket:`, oldSocket.id);
           oldSocket.disconnect(true);
           gameState.playerSockets.delete(result.id);
           
           // 从等待列表中移除旧连接
           gameState.waitingPlayers = gameState.waitingPlayers.filter(p => p.id !== result.id);
         }
-        
-        // 更新socket ID为新的连接
-        socket.id = result.id;
       }
       
       // 获取玩家信息
       const playerInfo = await getPlayer(socket.id);
-      console.log('Player joined:', { id: socket.id, nickname, playerInfo });
+      console.log('[startMatching] Player info:', playerInfo);
       
       // 开始匹配
-      console.log(`Player ${nickname} started matching`);
       const player = {
         id: socket.id,
         nickname,
@@ -129,8 +130,10 @@ io.on('connection', (socket) => {
         avatar: `/avatars/avatar${Math.floor(Math.random() * 6) + 1}.png`
       };
 
-      // 将玩家添加到等待列表
-      gameState.waitingPlayers.push(player);
+      // 将玩家添加到等待列表（如果不在列表中）
+      if (!gameState.waitingPlayers.some(p => p.id === socket.id)) {
+        gameState.waitingPlayers.push(player);
+      }
       gameState.playerSockets.set(socket.id, socket);
 
       // 广播当前等待玩家数量
@@ -140,7 +143,9 @@ io.on('connection', (socket) => {
 
       // 如果有足够的玩家，开始游戏
       if (gameState.waitingPlayers.length >= 2) {
-        console.log('Starting new game with players:', gameState.waitingPlayers.map(p => p.nickname));
+        console.log('[startMatching] Starting new game with players:', 
+          gameState.waitingPlayers.slice(0, 2).map(p => ({ id: p.id, nickname: p.nickname }))
+        );
         const players = gameState.waitingPlayers.splice(0, 2);
         const game = createNewGame(players);
 
@@ -155,29 +160,67 @@ io.on('connection', (socket) => {
           player.socket.emit('gameStart', {
             gameId: game.id,
             isQuestioner,
-            players: game.players.map(p => ({
-              id: p.id,
-              nickname: p.nickname,
-              avatar: p.avatar,
-              isQuestioner: p.id === game.questioner.id
-            })),
-            availableModels: isQuestioner ? game.aiPlayers.map(p => p.modelName) : null,
-            remainingAI: game.aiPlayers.length // 添加这行，发送初始AI数量
+            players: game.players,
+            availableModels: Object.keys(AI_MODELS),
+            remainingAI: game.aiPlayers.length
           });
         });
-
-        // 生成并发送推荐问题给提问者
-        const suggestedQuestions = await generateSuggestedQuestions();
-        game.questioner.socket.emit('suggestedQuestions', { questions: suggestedQuestions });
       }
     } catch (error) {
-      console.error('Error handling player join:', error);
-      socket.emit('error', { message: '加入游戏失败，昵称可能已被使用' });
+      console.error('[startMatching] Error:', error);
+      socket.emit('error', { message: 'Failed to start matching' });
+    }
+  });
+
+  socket.on('playerReady', ({ gameId }) => {
+    console.log(`[playerReady] Player ${socket.id} ready in game ${gameId}`);
+    const game = gameState.activeGames.get(gameId);
+    if (!game) {
+      console.log(`[playerReady] Game not found: ${gameId}`);
+      return;
+    }
+
+    // 确保玩家在正确的房间中
+    if (!socket.rooms.has(gameId)) {
+      console.log(`[playerReady] Player not in game room, joining: ${gameId}`);
+      socket.join(gameId);
+    }
+
+    // 更新玩家准备状态
+    const player = game.players.find(p => p.id === socket.id);
+    if (player) {
+      console.log(`[playerReady] Found player in game, updating ready status:`, {
+        id: player.id,
+        nickname: player.nickname,
+        wasReady: player.isReady
+      });
+      
+      player.isReady = true;
+      
+      // 广播玩家准备状态
+      io.to(gameId).emit('playerReady', socket.id);
+
+      // 检查是否所有人类玩家都已准备
+      const humanPlayers = game.players.filter(p => !p.isAI);
+      const allReady = humanPlayers.every(p => p.isReady);
+      
+      console.log(`[playerReady] Human players ready status:`, 
+        humanPlayers.map(p => ({ id: p.id, nickname: p.nickname, ready: p.isReady }))
+      );
+
+      if (allReady) {
+        console.log(`[playerReady] All human players ready, starting game`);
+        // 更新游戏状态并广播游戏开始
+        game.state = 'questioning';
+        io.to(gameId).emit('gameStart');
+      }
+    } else {
+      console.log(`[playerReady] Player not found in game:`, socket.id);
     }
   });
 
   socket.on('cancelMatching', () => {
-    console.log(`Player ${socket.id} cancelled matching`);
+    console.log(`[cancelMatching] Player ${socket.id} cancelled matching`);
     // 从等待列表中移除玩家
     gameState.waitingPlayers = gameState.waitingPlayers.filter(p => p.id !== socket.id);
     
@@ -188,7 +231,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
+    console.log('[disconnect] Client disconnected:', socket.id);
     // 从等待列表中移除断开连接的玩家
     gameState.waitingPlayers = gameState.waitingPlayers.filter(p => p.id !== socket.id);
     gameState.playerSockets.delete(socket.id);
@@ -199,26 +242,26 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('playerReady', ({ gameId }) => {
-    const game = gameState.activeGames.get(gameId);
-    if (!game) return;
-
-    // 更新玩家准备状态
-    const player = game.players.find(p => p.id === socket.id);
-    if (player) {
-      player.isReady = true;
-      // 广播玩家准备状态
-      io.to(gameId).emit('playerReady', socket.id);
-
-      // 检查是否所有人类玩家都已准备
-      const humanPlayers = game.players.filter(p => !p.isAI);
-      const allReady = humanPlayers.every(p => p.isReady);
-
-      if (allReady) {
-        // 更新游戏状态并广播游戏开始
-        game.state = 'questioning';
-        io.to(gameId).emit('gameStart');
-      }
+  socket.on('selectPlayer', ({ playerId }) => {
+    // 找到玩家所在的游戏
+    const game = Array.from(gameState.activeGames.values()).find(g => 
+      g.questioner.id === socket.id
+    );
+    
+    if (game) {
+      console.log(`[selectPlayer] Broadcasting selection to game ${game.id}. Selected player: ${playerId}`);
+      console.log(`[selectPlayer] Current players in game:`, game.players.map(p => p.id));
+      
+      // 广播选择给所有玩家
+      io.in(game.id).emit('playerSelected', { 
+        playerId,
+        selectedBy: socket.id 
+      });
+      
+      // 确认消息已发送
+      console.log(`[selectPlayer] Selection broadcast completed`);
+    } else {
+      console.log(`[selectPlayer] Game not found for questioner ${socket.id}`);
     }
   });
 
@@ -260,29 +303,6 @@ io.on('connection', (socket) => {
 
     // 设置超时，确保AI回答完成后检查
     setTimeout(checkAllAnswers, 1000);
-  });
-
-  socket.on('selectPlayer', ({ playerId }) => {
-    // 找到玩家所在的游戏
-    const game = Array.from(gameState.activeGames.values()).find(g => 
-      g.questioner.id === socket.id
-    );
-    
-    if (game) {
-      console.log(`[selectPlayer] Broadcasting selection to game ${game.id}. Selected player: ${playerId}`);
-      console.log(`[selectPlayer] Current players in game:`, game.players.map(p => p.id));
-      
-      // 广播选择给所有玩家
-      io.in(game.id).emit('playerSelected', { 
-        playerId,
-        selectedBy: socket.id 
-      });
-      
-      // 确认消息已发送
-      console.log(`[selectPlayer] Selection broadcast completed`);
-    } else {
-      console.log(`[selectPlayer] Game not found for questioner ${socket.id}`);
-    }
   });
 
   socket.on('submitAnswer', ({ gameId, answer }) => {

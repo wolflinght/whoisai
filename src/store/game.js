@@ -21,9 +21,11 @@ const mutations = {
     state.isQuestioner = isQuestioner
   },
   setPlayers(state, players) {
+    // 保持现有玩家的准备状态
+    const readyStates = new Map(state.players.map(p => [p.id, p.isReady]))
     state.players = players.map(player => ({
       ...player,
-      isReady: false
+      isReady: readyStates.get(player.id) || false
     }))
   },
   setCurrentQuestion(state, question) {
@@ -45,9 +47,13 @@ const mutations = {
     state.answers = answers
   },
   updatePlayerReady(state, playerId) {
+    console.log('[Store] Updating player ready status:', playerId)
     const player = state.players.find(p => p.id === playerId)
     if (player) {
+      console.log('[Store] Found player, setting ready status:', player.nickname)
       player.isReady = true
+    } else {
+      console.log('[Store] Player not found in store:', playerId)
     }
   },
   setRemainingAI(state, count) {
