@@ -399,7 +399,7 @@ io.on('connection', (socket) => {
 
     // 更新游戏总分
     if (!isAI) {
-      game.score += questionerPotentialScore;
+      game.score = questionerPotentialScore; // 提问者找到真人，直接设置为当前轮次的分数
       game.answererScore = 0; // 回答者被找到，分数清零
     } else {
       game.answererScore = (game.answererScore || 0) + answererPotentialScore;
@@ -427,11 +427,11 @@ io.on('connection', (socket) => {
     if (!isAI || game.aiPlayers.length === 0 || game.round >= 3) {
       let reason;
       if (!isAI) {
-        reason = 'humanFound';
+        reason = '选中了真人';
       } else if (game.aiPlayers.length === 0) {
-        reason = 'allAIFound';
+        reason = '所有AI都被找出';
       } else {
-        reason = 'maxRounds';
+        reason = '达到最大回合';
       }
 
       // 更新玩家分数
