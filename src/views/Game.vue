@@ -227,9 +227,9 @@ let loadingInterval = null
 
 const answers = ref([])
 
+// 使用固定顺序显示回答列表
 const shuffledAnswers = computed(() => {
-  if (!answers.value.length) return [];
-  return [...answers.value].sort(() => Math.random() - 0.5);
+  return answers.value;
 });
 
 onMounted(() => {
