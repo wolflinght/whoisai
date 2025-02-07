@@ -48,6 +48,16 @@ const mutations = {
     if (player) {
       player.isReady = true
     }
+  },
+  resetGame(state) {
+    state.gameId = null
+    state.players = []
+    state.currentQuestion = null
+    state.gameState = 'waiting'
+    state.score = 0
+    state.round = 1
+    state.availableModels = []
+    state.answers = []
   }
 }
 

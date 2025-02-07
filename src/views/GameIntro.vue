@@ -14,6 +14,7 @@
               {{ player.isQuestioner ? '提问者' : '回答者' }}
             </div>
             <div class="player-name">{{ player.nickname }}</div>
+            <div v-if="player.isAI" class="status-dot online"></div>
           </div>
         </div>
       </div>
@@ -24,19 +25,16 @@
       <div v-if="isQuestioner">
         <h4>提问者目标：</h4>
         <ul>
-          <li>你需要提出问题来区分人类和AI的回答</li>
-          <li>每轮游戏中，你将看到所有玩家的回答</li>
-          <li>你需要选择最像人类的回答</li>
-          <li>你可以在每一轮中标注具体某个AI玩家使用的是什么模型。每标注一个会消耗2点积分，但如果猜中了会获得8点积分，以小博大！</li>
+          <li>游戏一共有3轮，每一轮你需要向AI和人类玩家提出一个问题，观察他们的回答</li>
+          <li>选中你觉得最像人类的回答，淘汰他，越早淘汰你能获得越高的积分</li>
+          <li>如果有把握看出某个AI使用了什么模型，你也可以直接标记他的模型，注意这个行为会消耗你2点积分，如果标记正确则会获得4倍的回报</li>
         </ul>
       </div>
       <div v-else>
         <h4>回答者目标：</h4>
         <ul>
-          <li>你需要回答提问者的问题</li>
-          <li>如果你是人类：尽量自然地回答，让提问者选择你的回答</li>
-          <li>如果你是AI：也要尽量自然地回答，避免被提问者识别出来</li>
-          <li>当你的回答被选中时，你将获得积分</li>
+          <li>游戏一共有3轮，每一轮你和AI会同时收到提问者的问题，请假装你是一个AI，回答这个问题</li>
+          <li>提问者会选择他觉得最像真人的回答者，让他出局。你生存的轮数越久，就会获得成倍的奖励</li>
         </ul>
       </div>
     </div>
@@ -160,6 +158,17 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
+.status-dot {
+  position: absolute;
+  bottom: 5px;
+  right: 5px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid white;
+  background-color: #67C23A;
+}
+
 .role-description {
   background: white;
   padding: 25px;
@@ -237,6 +246,17 @@ const currentPlayerId = computed(() => store.state.game.socket?.id)
 const gameState = computed(() => store.state.game.gameState)
 const gameId = computed(() => store.state.game.gameId)
 
+const gameDescription = computed(() => {
+  if (isQuestioner.value) {
+    return `1. 游戏一共有3轮，每一轮你需要向AI和人类玩家提出一个问题，观察他们的回答
+2. 选中你觉得最像人类的回答，淘汰他，越早淘汰你能获得越高的积分
+3. 如果有把握看出某个AI使用了什么模型，你也可以直接标记他的模型，注意这个行为会消耗你2点积分，如果标记正确则会获得4倍的回报`
+  } else {
+    return `1. 游戏一共有3轮，每一轮你和AI会同时收到提问者的问题，请假装你是一个AI，回答这个问题
+2. 提问者会选择他觉得最像真人的回答者，让他出局。你生存的轮数越久，就会获得成倍的奖励`
+  }
+})
+
 // 监听游戏状态变化
 watch(gameState, (newState) => {
   if (newState === 'questioning') {
@@ -259,6 +279,22 @@ const toggleReady = () => {
 
 // 监听玩家准备状态更新
 onMounted(() => {
+  // 如果有游戏ID，请求更新玩家列表
+  const currentGameId = store.state.game.gameId
+  console.log('Current game ID:', currentGameId)
+  console.log('Current players:', store.state.game.players)
+  
+  if (currentGameId) {
+    console.log('Requesting players update for game:', currentGameId)
+    socket.emit('requestPlayersUpdate', { gameId: currentGameId })
+  }
+
+  // 监听玩家列表更新
+  socket.on('playersUpdate', ({ players }) => {
+    console.log('Received players update:', players)
+    store.commit('game/setPlayers', players)
+  })
+
   socket.on('playerReady', (playerId) => {
     console.log('Player ready:', playerId)
     store.dispatch('game/updatePlayerReadyStatus', playerId)
@@ -271,6 +307,7 @@ onMounted(() => {
 
   // 清理事件监听器
   return () => {
+    socket.off('playersUpdate')
     socket.off('playerReady')
     socket.off('gameStart')
   }

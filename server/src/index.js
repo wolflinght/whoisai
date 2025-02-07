@@ -79,6 +79,18 @@ function createNewGame(players) {
   return game;
 }
 
+function generateAIPlayers() {
+  const selectedModels = getRandomModels(3);
+  return selectedModels.map((modelKey, index) => ({
+    id: `ai-${index}`,
+    nickname: AI_MODELS[modelKey].name,
+    avatar: `/avatars/ai${index + 1}.png`,
+    isAI: true,
+    modelKey,
+    modelName: AI_MODELS[modelKey].name
+  }));
+}
+
 io.on('connection', (socket) => {
   console.log('New client connected');
 
@@ -187,7 +199,10 @@ io.on('connection', (socket) => {
     game.answers = new Map(); // 重置答案
     
     // 广播问题给所有玩家
-    io.to(gameId).emit('questionReceived', { question });
+    io.to(gameId).emit('questionReceived', { 
+      question,
+      remainingAI: game.aiPlayers.length // 添加剩余AI数量
+    });
 
     // 为AI生成回答
     for (const aiPlayer of game.aiPlayers) {
@@ -206,7 +221,8 @@ io.on('connection', (socket) => {
           answers: Array.from(game.answers.entries()).map(([id, answer]) => ({
             playerId: id,
             answer
-          }))
+          })),
+          remainingAI: game.aiPlayers.length // 添加剩余AI数量
         });
       }
     };
@@ -278,40 +294,102 @@ io.on('connection', (socket) => {
     const game = gameState.activeGames.get(gameId);
     if (!game) return;
 
-    const isCorrect = playerId === game.humanPlayer.id;
-    const score = isCorrect ? Math.pow(2, 4 - game.round) : 0;
-
-    // 更新分数
-    game.scores.set(socket.id, game.scores.get(socket.id) + score);
-
-    // 如果选错了，生成嘲讽语言
+    const selectedPlayer = game.aiPlayers.find(p => p.id === playerId);
+    const isAI = !!selectedPlayer;
     let tauntMessage = '';
-    if (!isCorrect) {
-      const aiPlayer = game.aiPlayers.find(p => p.id === playerId);
-      tauntMessage = `哈哈，我是${aiPlayer.modelName}，看来我装人类装得还不错嘛！`;
+
+    if (isAI) {
+      // 如果选择了AI，生成带有模型信息的嘲讽消息
+      const tauntMessages = [
+        `哈哈，我是${selectedPlayer.modelKey}，看来我的回答很像人类呢！`,
+        `身为${selectedPlayer.modelKey}，我成功骗过了你~`,
+        `${selectedPlayer.modelKey}也可以像人类一样有创意！`,
+        `这次我（${selectedPlayer.modelKey}）学会了人类的说话方式！`,
+        `${selectedPlayer.modelKey}的回答让你分不清AI和人类呢！`
+      ];
+      tauntMessage = tauntMessages[Math.floor(Math.random() * tauntMessages.length)];
+
+      // 从游戏中移除这个AI玩家
+      game.aiPlayers = game.aiPlayers.filter(p => p.id !== playerId);
     }
 
-    // 通知所有玩家结果
-    io.to(gameId).emit('roundResult', {
-      correct: isCorrect,
-      score: game.scores.get(socket.id),
-      round: game.round,
-      tauntMessage
-    });
+    // 计算分数
+    const scoreChange = isAI ? -2 : 4;
+    game.score += scoreChange;
 
-    if (isCorrect || game.round >= 4) {
-      // 游戏结束
-      io.to(gameId).emit('gameOver', {
-        winner: isCorrect ? 'questioner' : 'answerers',
-        finalScore: game.scores.get(socket.id)
+    // 通知所有玩家结果，只发送一次结果
+    if (!game.resultSent) {
+      io.to(gameId).emit('roundResult', {
+        correct: !isAI,
+        score: game.score,
+        tauntMessage,
+        round: game.round,
+        remainingAI: game.aiPlayers.length
       });
-      gameState.activeGames.delete(gameId);
+
+      // 设置一个标志，防止重复发送结果
+      game.resultSent = true;
+    }
+
+    // 检查游戏是否结束
+    if (!isAI || game.aiPlayers.length === 0 || game.round >= 3) {
+      let reason;
+      if (!isAI) {
+        reason = 'humanFound';
+      } else if (game.aiPlayers.length === 0) {
+        reason = 'allAIFound';
+      } else {
+        reason = 'maxRounds';
+      }
+
+      // 游戏结束，通知所有玩家
+      io.to(gameId).emit('gameOver', {
+        winner: !isAI ? 'questioner' : 'answerers',
+        finalScore: game.score,
+        reason
+      });
+
+      // 重置所有玩家状态为未准备
+      const players = Array.from(io.sockets.adapter.rooms.get(gameId) || []);
+      players.forEach(playerId => {
+        const playerSocket = io.sockets.sockets.get(playerId);
+        if (playerSocket) {
+          playerSocket.data.ready = false;
+        }
+      });
+
+      // 重置游戏状态
+      game.round = 1;
+      game.score = 0;
+      game.currentQuestion = null;
+      game.answers = new Map();
+      game.resultSent = false;
+      game.aiPlayers = generateAIPlayers(); // 重新生成AI玩家
     } else {
-      // 进入下一轮
+      // 继续下一轮
       game.round++;
-      game.state = 'asking';
-      game.answers.clear();
-      game.modelGuesses.clear();
+      game.currentQuestion = null;
+      game.answers = new Map();
+      game.resultSent = false;
+    }
+  });
+
+  socket.on('requestPlayersUpdate', ({ gameId }) => {
+    const game = gameState.activeGames.get(gameId);
+    if (game) {
+      // 重置玩家准备状态
+      game.players.forEach(p => p.isReady = false);
+      
+      io.to(gameId).emit('playersUpdate', { 
+        players: game.players.map(p => ({
+          id: p.id,
+          nickname: p.nickname,
+          avatar: p.avatar,
+          isQuestioner: p.isQuestioner,
+          isAI: p.isAI,
+          isReady: p.isReady
+        }))
+      });
     }
   });
 });

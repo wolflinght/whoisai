@@ -14,6 +14,7 @@ socket.on('gameStart', ({ isQuestioner, gameId, players, availableModels }) => {
 })
 
 socket.on('playersUpdate', ({ players }) => {
+  console.log('Received players update:', players)
   store.commit('game/setPlayers', players)
 })
 

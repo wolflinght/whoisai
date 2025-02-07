@@ -3,7 +3,13 @@
     <div class="game-container">
       <div class="game-header">
         <h2>第{{ currentRound }}轮</h2>
-        <div class="score">积分: {{ score }}</div>
+        <div v-if="nextRoundTimer > 0" class="next-round-timer">
+          {{ nextRoundTimer }}秒后开始下一轮
+        </div>
+        <div class="game-info">
+          <div class="score">积分: {{ score }}</div>
+          <div class="remaining-ai">剩余AI: {{ remainingAI }}</div>
+        </div>
       </div>
 
       <!-- 提问者界面 -->
@@ -65,6 +71,13 @@
               :class="{ 'selected-answer-questioner': selectedPlayer === answer.playerId }"
               @click="selectPlayer(answer.playerId)"
             >
+              <div 
+                v-if="answer.tauntMessage" 
+                class="taunt-bubble"
+                :style="{ opacity: selectedPlayer === answer.playerId ? 1 : 0 }"
+              >
+                {{ answer.tauntMessage }}
+              </div>
               <div class="answer-content">
                 <div class="answer-number">{{ index + 1 }}号玩家</div>
                 <div class="answer-text">{{ answer.answer }}</div>
@@ -177,16 +190,20 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useStore } from 'vuex'
+import { useRouter } from 'vue-router'
 import socket from '../socket'
 
 const store = useStore()
+const router = useRouter()
 
 // 游戏状态
 const currentRound = ref(1)
 const score = ref(0)
-const gameState = ref('asking') // asking, answering, choosing, waiting
+const gameState = ref('asking')
 const isQuestioner = ref(false)
 const currentQuestion = ref('')
+const nextRoundTimer = ref(0)
+const remainingAI = ref(3) // 默认3个AI
 const suggestedQuestions = ref([
   "你最喜欢的一本书是什么？为什么？",
   "如果可以选择一个超能力，你会选择什么？",
@@ -240,43 +257,81 @@ const initializeGame = () => {
 
 const setupSocketListeners = () => {
   // 设置Socket.IO事件监听
-  socket.on('questionReceived', ({ question }) => {
+  socket.on('questionReceived', ({ question, remainingAI: aiCount }) => {
     currentQuestion.value = question
+    remainingAI.value = aiCount
     if (!isQuestioner.value) {
       gameState.value = 'answering'
     }
   })
 
-  socket.on('allAnswersReceived', ({ answers: receivedAnswers }) => {
+  socket.on('allAnswersReceived', ({ answers: receivedAnswers, remainingAI: aiCount }) => {
     answers.value = receivedAnswers
+    remainingAI.value = aiCount
     gameState.value = 'choosing'
     if (loadingInterval) {
       clearInterval(loadingInterval)
     }
   })
 
-  socket.on('playerSelected', ({ playerId }) => {
-    selectedPlayer.value = playerId
-  })
-
-  socket.on('modelGuessResult', ({ correct, score: newScore }) => {
+  socket.on('roundResult', ({ correct, score: newScore, tauntMessage, remainingAI: aiCount }) => {
     score.value = newScore
-    ElMessage({
-      type: correct ? 'success' : 'error',
-      message: correct ? '标记正确！获得4积分' : '标记错误，扣除2积分'
-    })
-  })
-
-  socket.on('roundResult', ({ correct, score: newScore, tauntMessage }) => {
-    score.value = newScore
+    remainingAI.value = aiCount
+    
+    // 更新答案的嘲讽消息
     if (tauntMessage) {
-      ElMessage({
-        type: 'warning',
-        message: tauntMessage,
-        duration: 5000
-      })
+      const selectedAnswer = answers.value.find(a => a.playerId === selectedPlayer.value)
+      if (selectedAnswer) {
+        selectedAnswer.tauntMessage = tauntMessage
+      }
     }
+
+    // 开始倒计时
+    nextRoundTimer.value = 5
+    const timerInterval = setInterval(() => {
+      nextRoundTimer.value--
+      if (nextRoundTimer.value <= 0) {
+        clearInterval(timerInterval)
+        // 重置游戏状态
+        gameState.value = 'asking'
+        currentQuestion.value = ''
+        answers.value = []
+        selectedPlayer.value = null
+        currentRound.value++
+      }
+    }, 1000)
   })
+
+  socket.on('gameOver', ({ winner, finalScore, reason }) => {
+    let message = '';
+    if (reason === 'humanFound') {
+      message = '游戏结束！你选中了真人玩家';
+    } else if (reason === 'allAIFound') {
+      message = '游戏结束！所有AI玩家都被找出来了';
+    } else {
+      message = '游戏结束！已达到最大回合数';
+    }
+
+    message += `\n最终得分：${finalScore}`;
+    handleGameOver(message)
+  })
+}
+
+const handleGameOver = (message) => {
+  ElMessage({
+    type: 'success',
+    message,
+    duration: 5000,
+    showClose: true
+  })
+
+  // 设置游戏状态为等待，但保持玩家列表
+  store.commit('game/setGameState', 'waiting')
+
+  // 延迟2秒后返回介绍页面
+  setTimeout(() => {
+    router.push('/game-intro')
+  }, 2000)
 }
 
 const submitQuestion = () => {
@@ -313,7 +368,6 @@ const submitChoice = () => {
 
 const guessModel = (playerId) => {
   if (score.value < 2) {
-    ElMessage.warning('积分不足，需要2积分才能标记模型')
     return
   }
   
@@ -350,13 +404,28 @@ const selectSuggestedQuestion = (q) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 30px;
+  margin-bottom: 20px;
+  position: relative;
 }
 
-.score {
-  font-size: 1.2em;
+.game-info {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.score, .remaining-ai {
   font-weight: bold;
   color: #409EFF;
+}
+
+.next-round-timer {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #409EFF;
+  font-size: 1.2em;
+  font-weight: bold;
 }
 
 .question-section,
@@ -504,6 +573,7 @@ const selectSuggestedQuestion = (q) => {
 .answer-card {
   cursor: pointer;
   transition: all 0.3s ease;
+  position: relative;
 }
 
 .answer-card:not(.non-clickable):hover {
@@ -585,6 +655,34 @@ const selectSuggestedQuestion = (q) => {
   color: #909399;
   font-weight: normal;
   margin-left: 8px;
+}
+
+.taunt-bubble {
+  position: absolute;
+  top: -60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: #F56C6C;
+  color: white;
+  padding: 10px 15px;
+  border-radius: 8px;
+  font-size: 0.9em;
+  max-width: 200px;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 1;
+}
+
+.taunt-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 8px solid #F56C6C;
 }
 
 @keyframes loading {
