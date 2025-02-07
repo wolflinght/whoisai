@@ -5,7 +5,7 @@
       <el-table-column type="index" label="排名" width="80" align="center" />
       <el-table-column prop="nickname" label="玩家" align="center" />
       <el-table-column prop="total_score" label="总分" width="100" align="center" />
-      <el-table-column prop="highest_score" label="最高分" width="100" align="center" />
+      <el-table-column prop="highest_score" label="单场最高分" width="120" align="center" />
     </el-table>
   </div>
 </template>

@@ -31,12 +31,12 @@ const db = new sqlite3.Database(path.join(dbDir, 'players.db'), (err) => {
         log('Database connection error:', err);
     } else {
         log('Connected to the players database');
-        // 删除旧表
-        db.run('DROP TABLE IF EXISTS players', (err) => {
+        // 只在表不存在时创建新表
+        db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='players'", (err, row) => {
             if (err) {
-                log('Error dropping old table:', err);
-            } else {
-                // 创建新的玩家表
+                log('Error checking table existence:', err);
+            } else if (!row) {
+                // 表不存在，创建新表
                 db.run(`CREATE TABLE IF NOT EXISTS players (
                     nickname TEXT PRIMARY KEY,
                     total_score INTEGER DEFAULT 0,
@@ -49,9 +49,11 @@ const db = new sqlite3.Database(path.join(dbDir, 'players.db'), (err) => {
                     if (err) {
                         log('Error creating players table:', err);
                     } else {
-                        log('Players table ready');
+                        log('Players table created successfully');
                     }
                 });
+            } else {
+                log('Players table already exists');
             }
         });
     }
