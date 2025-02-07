@@ -138,7 +138,7 @@
           </div>
         </div>
 
-        <div v-if="gameState === 'answering'">
+        <div v-if="gameState === 'answering'" class="answering-section">
           <h3>请回答问题：</h3>
           <div class="current-question">{{ currentQuestion }}</div>
           <el-input
@@ -146,15 +146,18 @@
             type="textarea"
             placeholder="输入你的回答"
             :rows="3"
+            class="answer-input"
           />
-          <div class="timer">剩余时间：{{ timer }}秒</div>
-          <el-button 
-            type="primary" 
-            @click="submitAnswer"
-            :disabled="!answer"
-          >
-            提交回答
-          </el-button>
+          <div class="button-container">
+            <el-button 
+              type="primary" 
+              @click="submitAnswer"
+              :disabled="!answer"
+              class="submit-answer-button"
+            >
+              提交回答
+            </el-button>
+          </div>
         </div>
 
         <div v-if="gameState === 'choosing'" class="answers-section">
@@ -696,5 +699,27 @@ const selectSuggestedQuestion = (q) => {
 .loading-dots::after {
   content: '';
   animation: loading 2s infinite steps(4);
+}
+
+.answering-section {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.answer-input {
+  margin: 20px 0;
+}
+
+.button-container {
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.submit-answer-button {
+  min-width: 120px;
 }
 </style>
