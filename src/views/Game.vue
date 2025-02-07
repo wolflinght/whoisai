@@ -214,20 +214,6 @@
               <div class="answer-content">
                 <div class="answer-number">{{ index + 1 }}号玩家</div>
                 <div class="answer-text">{{ answer.answer }}</div>
-                <div class="model-guess">
-                  <el-select 
-                    v-model="modelGuesses[answer.playerId]" 
-                    placeholder="标记AI模型"
-                    @change="guessModel(answer.playerId)"
-                  >
-                    <el-option
-                      v-for="model in availableModelTags"
-                      :key="model"
-                      :label="model"
-                      :value="model"
-                    />
-                  </el-select>
-                </div>
               </div>
             </el-card>
           </div>
@@ -368,6 +354,15 @@ const setupSocketListeners = () => {
   })
 
   socket.on('roundResult', ({ correct, score: newScore, potentialScore: newPotentialScore, tauntMessage, remainingAI: aiCount }) => {
+    console.log('[roundResult] Score update:', {
+      oldScore: score.value,
+      newScore,
+      potentialScore: newPotentialScore,
+      remainingAI: aiCount,
+      isQuestioner: isQuestioner.value,
+      currentRound: currentRound.value
+    });
+    
     score.value = newScore
     potentialScore.value = newPotentialScore
     remainingAI.value = aiCount
@@ -379,6 +374,9 @@ const setupSocketListeners = () => {
         selectedAnswer.tauntMessage = tauntMessage
       }
     }
+
+    // 重置所有模型猜测
+    store.commit('game/resetModelGuesses')
 
     // 开始倒计时
     nextRoundTimer.value = 5
@@ -403,6 +401,14 @@ const setupSocketListeners = () => {
   })
 
   socket.on('gameOver', ({ winner, finalScore, reason }) => {
+    console.log('[gameOver] Game ended:', {
+      winner,
+      finalScore,
+      reason,
+      currentScore: score.value,
+      isQuestioner: isQuestioner.value,
+      currentRound: currentRound.value
+    });
     handleGameOver(reason)
   })
 }
@@ -433,6 +439,9 @@ const handleGameOver = (message) => {
   scoreBreakdown.value = isQuestioner.value ? 
     '每轮找出真人的得分：第1轮8分，第2轮4分，第3轮2分，第4轮0分\n猜对AI模型：+4分（消耗2分）' :
     '存活得分：第1轮2分，第2轮4分，第3轮8分'
+
+  // 重置所有模型猜测
+  store.commit('game/resetModelGuesses')
 
   // 设置游戏状态为结束
   store.commit('game/setGameState', 'gameOver')

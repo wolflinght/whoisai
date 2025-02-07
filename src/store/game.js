@@ -89,6 +89,9 @@ const mutations = {
       state.modelGuesses[playerId] = modelGuess
     }
   },
+  resetModelGuesses(state) {
+    state.modelGuesses = {}
+  },
 }
 
 const actions = {
