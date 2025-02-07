@@ -358,20 +358,6 @@ io.on('connection', (socket) => {
     const scoreChange = isAI ? -2 : 4;
     game.score += scoreChange;
 
-    // 通知所有玩家结果，只发送一次结果
-    if (!game.resultSent) {
-      io.to(gameId).emit('roundResult', {
-        correct: !isAI,
-        score: game.score,
-        tauntMessage,
-        round: game.round,
-        remainingAI: game.aiPlayers.length
-      });
-
-      // 设置一个标志，防止重复发送结果
-      game.resultSent = true;
-    }
-
     // 检查游戏是否结束
     if (!isAI || game.aiPlayers.length === 0 || game.round >= 3) {
       let reason;
@@ -383,11 +369,32 @@ io.on('connection', (socket) => {
         reason = 'maxRounds';
       }
 
-      // 游戏结束，通知所有玩家
-      io.to(gameId).emit('gameOver', {
-        winner: !isAI ? 'questioner' : 'answerers',
-        finalScore: game.score,
-        reason
+      // 更新玩家分数
+      const questioner = game.questioner;
+      const answerer = game.humanPlayer;
+      const questionerScore = game.scores.get(questioner.id) || 0;
+      const answererScore = game.scores.get(answerer.id) || 0;
+
+      // 异步更新分数
+      Promise.all([
+        updatePlayerScore(questioner.id, questionerScore),
+        updatePlayerScore(answerer.id, answererScore)
+      ]).then(() => {
+        // 获取最新的排行榜
+        return getLeaderboard();
+      }).then(leaderboard => {
+        // 游戏结束，通知所有玩家
+        io.to(gameId).emit('gameOver', {
+          winner: !isAI ? 'questioner' : 'answerers',
+          finalScores: {
+            [questioner.id]: questionerScore,
+            [answerer.id]: answererScore
+          },
+          reason,
+          leaderboard
+        });
+      }).catch(error => {
+        console.error('Error updating scores:', error);
       });
 
       // 重置所有玩家状态为未准备
