@@ -161,7 +161,8 @@ io.on('connection', (socket) => {
               avatar: p.avatar,
               isQuestioner: p.id === game.questioner.id
             })),
-            availableModels: isQuestioner ? game.aiPlayers.map(p => p.modelName) : null
+            availableModels: isQuestioner ? game.aiPlayers.map(p => p.modelName) : null,
+            remainingAI: game.aiPlayers.length // 添加这行，发送初始AI数量
           });
         });
 
@@ -354,11 +355,55 @@ io.on('connection', (socket) => {
       game.aiPlayers = game.aiPlayers.filter(p => p.id !== playerId);
     }
 
-    // 计算分数
-    const scoreChange = isAI ? -2 : 4;
-    game.score += scoreChange;
+    // 计算提问者本轮可获得的积分
+    let questionerPotentialScore;
+    if (!isAI && game.round === 1) {
+      questionerPotentialScore = 8;
+    } else if (!isAI && game.round === 2) {
+      questionerPotentialScore = 4;
+    } else if (!isAI && game.round === 3) {
+      questionerPotentialScore = 2;
+    } else {
+      questionerPotentialScore = 0;
+    }
 
-    // 检查游戏是否结束
+    // 计算回答者本轮可获得的积分
+    let answererPotentialScore;
+    if (game.round === 1) {
+      answererPotentialScore = 2;
+    } else if (game.round === 2) {
+      answererPotentialScore = 4;
+    } else {
+      answererPotentialScore = 8;
+    }
+
+    // 更新游戏总分
+    if (!isAI) {
+      game.score += questionerPotentialScore;
+      game.answererScore = 0; // 回答者被找到，分数清零
+    } else {
+      game.answererScore = (game.answererScore || 0) + answererPotentialScore;
+    }
+
+    // 更新并发送分数给提问者和回答者
+    io.to(game.questioner.id).emit('roundResult', {
+      correct: !isAI,
+      score: game.score,
+      potentialScore: !isAI ? 0 : (game.round === 3 ? 0 : (game.round === 2 ? 2 : 4)),
+      tauntMessage,
+      remainingAI: game.aiPlayers.length
+    });
+
+    if (game.humanPlayer) {
+      io.to(game.humanPlayer.id).emit('roundResult', {
+        correct: !isAI,
+        score: game.answererScore || 0,
+        potentialScore: isAI ? (game.round === 3 ? 8 : (game.round === 2 ? 4 : 2)) : 0,
+        tauntMessage,
+        remainingAI: game.aiPlayers.length
+      });
+    }
+
     if (!isAI || game.aiPlayers.length === 0 || game.round >= 3) {
       let reason;
       if (!isAI) {
@@ -370,32 +415,33 @@ io.on('connection', (socket) => {
       }
 
       // 更新玩家分数
-      const questioner = game.questioner;
-      const answerer = game.humanPlayer;
-      const questionerScore = game.scores.get(questioner.id) || 0;
-      const answererScore = game.scores.get(answerer.id) || 0;
+      (async () => {
+        try {
+          // 更新提问者的分数
+          await updatePlayerScore(game.questioner.id, game.score);
+          // 更新回答者的分数（如果不是AI）
+          if (game.humanPlayer) {
+            await updatePlayerScore(game.humanPlayer.id, game.answererScore || 0);
+          }
+        } catch (error) {
+          console.error('Error updating player scores:', error);
+        }
+      })();
 
-      // 异步更新分数
-      Promise.all([
-        updatePlayerScore(questioner.id, questionerScore),
-        updatePlayerScore(answerer.id, answererScore)
-      ]).then(() => {
-        // 获取最新的排行榜
-        return getLeaderboard();
-      }).then(leaderboard => {
-        // 游戏结束，通知所有玩家
-        io.to(gameId).emit('gameOver', {
-          winner: !isAI ? 'questioner' : 'answerers',
-          finalScores: {
-            [questioner.id]: questionerScore,
-            [answerer.id]: answererScore
-          },
-          reason,
-          leaderboard
-        });
-      }).catch(error => {
-        console.error('Error updating scores:', error);
+      // 游戏结束，分别通知提问者和回答者他们的分数
+      io.to(game.questioner.id).emit('gameOver', {
+        winner: !isAI ? 'questioner' : 'answerers',
+        finalScore: game.score,
+        reason
       });
+
+      if (game.humanPlayer) {
+        io.to(game.humanPlayer.id).emit('gameOver', {
+          winner: !isAI ? 'questioner' : 'answerers',
+          finalScore: game.answererScore || 0,
+          reason
+        });
+      }
 
       // 重置所有玩家状态为未准备
       const players = Array.from(io.sockets.adapter.rooms.get(gameId) || []);

@@ -9,7 +9,8 @@ const state = {
   score: 0,
   round: 1,
   availableModels: [],
-  answers: []
+  answers: [],
+  remainingAI: 0
 }
 
 const mutations = {
@@ -49,6 +50,9 @@ const mutations = {
       player.isReady = true
     }
   },
+  setRemainingAI(state, count) {
+    state.remainingAI = count
+  },
   resetGame(state) {
     state.gameId = null
     state.players = []
@@ -58,6 +62,7 @@ const mutations = {
     state.round = 1
     state.availableModels = []
     state.answers = []
+    state.remainingAI = 0
   }
 }
 
@@ -66,12 +71,15 @@ const actions = {
     socket.emit('startMatching', { nickname })
   },
 
-  initializeGame({ commit }, { gameId, isQuestioner, players, availableModels }) {
+  initializeGame({ commit }, { gameId, isQuestioner, players, availableModels, remainingAI }) {
     commit('setGameId', gameId)
     commit('setIsQuestioner', isQuestioner)
-    commit('setPlayers', players)
-    commit('setAvailableModels', availableModels)
-    commit('setGameState', 'intro')
+    commit('setPlayers', players || [])
+    commit('setAvailableModels', availableModels || [])
+    commit('setGameState', 'waiting')
+    commit('setScore', 0)
+    commit('setRound', 1)
+    commit('setRemainingAI', remainingAI || 0)
   },
 
   submitQuestion({ state, commit }, question) {

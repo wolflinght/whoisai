@@ -7,29 +7,21 @@ const db = new sqlite3.Database(path.join(__dirname, '../data/players.db'), (err
         console.error('Error connecting to the database:', err);
     } else {
         console.log('Connected to the SQLite database.');
-        // 删除旧表
-        db.run('DROP TABLE IF EXISTS players', (err) => {
+        // 创建玩家表（如果不存在）
+        db.run(`CREATE TABLE IF NOT EXISTS players (
+            id TEXT PRIMARY KEY,
+            nickname TEXT NOT NULL UNIQUE,
+            total_score INTEGER DEFAULT 0,
+            highest_score INTEGER DEFAULT 0,
+            games_played INTEGER DEFAULT 0,
+            avg_score REAL DEFAULT 0,
+            last_played DATETIME,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`, (err) => {
             if (err) {
-                console.error('Error dropping players table:', err);
+                console.error('Error creating players table:', err);
             } else {
-                console.log('Old players table dropped');
-                // 创建新的玩家表，添加昵称唯一约束和最高分字段
-                db.run(`CREATE TABLE players (
-                    id TEXT PRIMARY KEY,
-                    nickname TEXT NOT NULL UNIQUE,
-                    total_score INTEGER DEFAULT 0,
-                    highest_score INTEGER DEFAULT 0,
-                    games_played INTEGER DEFAULT 0,
-                    avg_score REAL DEFAULT 0,
-                    last_played DATETIME,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                )`, (err) => {
-                    if (err) {
-                        console.error('Error creating players table:', err);
-                    } else {
-                        console.log('New players table created with unique nickname constraint');
-                    }
-                });
+                console.log('Players table ready');
             }
         });
     }

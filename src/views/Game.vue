@@ -2,13 +2,17 @@
   <div class="game">
     <div class="game-container">
       <div class="game-header">
-        <h2>第{{ currentRound }}轮</h2>
-        <div v-if="nextRoundTimer > 0" class="next-round-timer">
-          {{ nextRoundTimer }}秒后开始下一轮
+        <div class="header-top">
+          <h2>第{{ currentRound }}轮</h2>
+          <div class="game-info">
+            <div class="remaining-ai">剩余AI: {{ remainingAI }}</div>
+          </div>
         </div>
-        <div class="game-info">
-          <div class="score">积分: {{ score }}</div>
-          <div class="remaining-ai">剩余AI: {{ remainingAI }}</div>
+        <div class="header-bottom">
+          <div class="score">本局积分: {{ score || 0 }}{{ potentialScore ? ` (本轮${isQuestioner ? '胜利' : '生存'}可获得${potentialScore}分)` : '' }}</div>
+          <div v-if="nextRoundTimer > 0" class="next-round-timer">
+            {{ nextRoundTimer }}秒后开始下一轮
+          </div>
         </div>
       </div>
 
@@ -209,11 +213,12 @@ const router = useRouter()
 // 游戏状态
 const currentRound = ref(1)
 const score = ref(0)
+const potentialScore = ref(0)
 const gameState = ref('asking')
 const isQuestioner = ref(false)
 const currentQuestion = ref('')
 const nextRoundTimer = ref(0)
-const remainingAI = ref(3) // 默认3个AI
+const remainingAI = ref(0) // 默认0个AI
 const suggestedQuestions = ref([
   "你最喜欢的一本书是什么？为什么？",
   "如果可以选择一个超能力，你会选择什么？",
@@ -263,6 +268,7 @@ const initializeGame = () => {
   score.value = store.state.game.score
   currentQuestion.value = store.state.game.currentQuestion
   answers.value = store.state.game.answers
+  remainingAI.value = store.state.game.remainingAI
 }
 
 const setupSocketListeners = () => {
@@ -284,8 +290,9 @@ const setupSocketListeners = () => {
     }
   })
 
-  socket.on('roundResult', ({ correct, score: newScore, tauntMessage, remainingAI: aiCount }) => {
+  socket.on('roundResult', ({ correct, score: newScore, potentialScore: newPotentialScore, tauntMessage, remainingAI: aiCount }) => {
     score.value = newScore
+    potentialScore.value = newPotentialScore
     remainingAI.value = aiCount
     
     // 更新答案的嘲讽消息
@@ -417,11 +424,25 @@ const selectSuggestedQuestion = (q) => {
 }
 
 .game-header {
+  background-color: #f5f7fa;
+  padding: 15px 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.header-top {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
-  position: relative;
+  margin-bottom: 10px;
+}
+
+.header-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 30px;
 }
 
 .game-info {
@@ -430,18 +451,25 @@ const selectSuggestedQuestion = (q) => {
   align-items: center;
 }
 
-.score, .remaining-ai {
-  font-weight: bold;
+.score {
+  font-size: 16px;
   color: #409EFF;
+  font-weight: bold;
+}
+
+.remaining-ai {
+  font-size: 16px;
+  color: #67c23a;
+  font-weight: bold;
 }
 
 .next-round-timer {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  color: #409EFF;
-  font-size: 1.2em;
+  color: #E6A23C;
   font-weight: bold;
+  font-size: 16px;
+  padding: 4px 12px;
+  background-color: #fdf6ec;
+  border-radius: 4px;
 }
 
 .question-section,
