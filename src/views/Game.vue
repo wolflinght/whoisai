@@ -364,7 +364,20 @@ const setupSocketListeners = () => {
     });
     
     score.value = newScore
-    potentialScore.value = newPotentialScore
+    // 根据当前轮数设置潜在得分
+    if (isQuestioner.value) {
+      if (currentRound.value === 1) {
+        potentialScore.value = 8;
+      } else if (currentRound.value === 2) {
+        potentialScore.value = 4;
+      } else if (currentRound.value === 3) {
+        potentialScore.value = 2;
+      } else {
+        potentialScore.value = 0;
+      }
+    } else {
+      potentialScore.value = newPotentialScore;
+    }
     remainingAI.value = aiCount
     
     // 更新答案的嘲讽消息

@@ -20,26 +20,38 @@ function log(message, data = null) {
 }
 
 // 数据库连接
-const db = new sqlite3.Database(path.join(__dirname, '../data/players.db'), (err) => {
+const dbDir = path.join(__dirname, '../data');
+// 确保数据目录存在
+if (!fs.existsSync(dbDir)) {
+    fs.mkdirSync(dbDir);
+}
+
+const db = new sqlite3.Database(path.join(dbDir, 'players.db'), (err) => {
     if (err) {
         log('Database connection error:', err);
     } else {
         log('Connected to the players database');
-        // 创建玩家表（如果不存在）
-        db.run(`CREATE TABLE IF NOT EXISTS players (
-            id TEXT PRIMARY KEY,
-            nickname TEXT NOT NULL UNIQUE,
-            total_score INTEGER DEFAULT 0,
-            highest_score INTEGER DEFAULT 0,
-            games_played INTEGER DEFAULT 0,
-            avg_score REAL DEFAULT 0,
-            last_played DATETIME,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )`, (err) => {
+        // 删除旧表
+        db.run('DROP TABLE IF EXISTS players', (err) => {
             if (err) {
-                log('Error creating players table:', err);
+                log('Error dropping old table:', err);
             } else {
-                log('Players table ready');
+                // 创建新的玩家表
+                db.run(`CREATE TABLE IF NOT EXISTS players (
+                    nickname TEXT PRIMARY KEY,
+                    total_score INTEGER DEFAULT 0,
+                    highest_score INTEGER DEFAULT 0,
+                    games_played INTEGER DEFAULT 0,
+                    avg_score REAL DEFAULT 0,
+                    last_played DATETIME,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )`, (err) => {
+                    if (err) {
+                        log('Error creating players table:', err);
+                    } else {
+                        log('Players table ready');
+                    }
+                });
             }
         });
     }
@@ -70,36 +82,30 @@ async function upsertPlayer(id, nickname) {
         
         if (existingPlayer) {
             // 如果找到相同昵称的玩家，返回该玩家的信息
-            log('Found existing player:', { id, nickname, player: existingPlayer });
+            log('Found existing player:', { nickname, player: existingPlayer });
             return {
-                id: existingPlayer.id,
+                nickname: existingPlayer.nickname,
                 isExisting: true,
                 player: existingPlayer
             };
         }
         
         // 如果没有找到相同昵称的玩家，创建新玩家
-        log('Creating new player:', { id, nickname });
+        log('Creating new player:', { nickname });
         return new Promise((resolve, reject) => {
-            db.run(`INSERT INTO players (id, nickname) 
-                    VALUES (?, ?)
-                    ON CONFLICT(id) DO UPDATE SET 
-                    nickname = excluded.nickname,
+            db.run(`INSERT INTO players (nickname) 
+                    VALUES (?)
+                    ON CONFLICT(nickname) DO UPDATE SET 
                     last_played = CURRENT_TIMESTAMP`,
-                [id, nickname],
+                [nickname],
                 function(err) {
                     if (err) {
-                        if (err.code === 'SQLITE_CONSTRAINT') {
-                            log('Nickname already exists:', err);
-                            reject(new Error('Nickname already exists'));
-                        } else {
-                            log('Error upserting player:', err);
-                            reject(err);
-                        }
+                        log('Error upserting player:', err);
+                        reject(err);
                     } else {
-                        log('Upserted player:', { id, nickname });
+                        log('Upserted player:', { nickname });
                         resolve({
-                            id,
+                            nickname,
                             isExisting: false,
                             player: null
                         });
@@ -113,11 +119,11 @@ async function upsertPlayer(id, nickname) {
 }
 
 // 更新玩家分数
-function updatePlayerScore(id, score) {
-    log('Attempting to update player score:', { id, score });
+function updatePlayerScore(id, score, nickname) {
+    log('Attempting to update player score:', { id, nickname, score });
     return new Promise((resolve, reject) => {
         // 首先获取当前分数
-        db.get('SELECT total_score FROM players WHERE id = ?', [id], (err, row) => {
+        db.get('SELECT total_score FROM players WHERE nickname = ?', [nickname], (err, row) => {
             if (err) {
                 log('Error getting current score:', err);
                 reject(err);
@@ -125,7 +131,7 @@ function updatePlayerScore(id, score) {
             }
             
             log('Current player score before update:', {
-                id,
+                nickname,
                 currentScore: row ? row.total_score : 0,
                 scoreToAdd: score
             });
@@ -137,27 +143,27 @@ function updatePlayerScore(id, score) {
                         highest_score = CASE WHEN ? > highest_score THEN ? ELSE highest_score END,
                         avg_score = ROUND(CAST((total_score + ?) AS FLOAT) / (games_played + 1), 2),
                         last_played = CURRENT_TIMESTAMP
-                    WHERE id = ?`;
+                    WHERE nickname = ?`;
             
             log('Executing update query:', {
                 query: updateQuery,
-                params: [score, score, score, score, id]
+                params: [score, score, score, score, nickname]
             });
 
-            db.run(updateQuery, [score, score, score, score, id], function(err) {
+            db.run(updateQuery, [score, score, score, score, nickname], function(err) {
                 if (err) {
                     log('Error updating score:', err);
                     reject(err);
                 } else {
                     // 获取更新后的分数
-                    db.get('SELECT total_score FROM players WHERE id = ?', [id], (err, updatedRow) => {
+                    db.get('SELECT total_score FROM players WHERE nickname = ?', [nickname], (err, updatedRow) => {
                         if (err) {
                             log('Error getting updated score:', err);
                             reject(err);
                             return;
                         }
                         log('Player score after update:', {
-                            id,
+                            nickname,
                             oldScore: row ? row.total_score : 0,
                             newScore: updatedRow ? updatedRow.total_score : 0,
                             scoreAdded: score,
@@ -175,7 +181,7 @@ function updatePlayerScore(id, score) {
 function getPlayer(id) {
     log('Attempting to get player:', { id });
     return new Promise((resolve, reject) => {
-        db.get('SELECT * FROM players WHERE id = ?', [id], (err, row) => {
+        db.get('SELECT * FROM players WHERE nickname = ?', [id], (err, row) => {
             if (err) {
                 log('Error getting player:', err);
                 reject(err);
@@ -212,7 +218,7 @@ function getLeaderboard(limit = 10) {
 function getPlayerScore(id) {
     log('Attempting to get player score:', { id });
     return new Promise((resolve, reject) => {
-        db.get('SELECT id, nickname, total_score, highest_score FROM players WHERE id = ?', [id], (err, row) => {
+        db.get('SELECT nickname, total_score, highest_score FROM players WHERE nickname = ?', [id], (err, row) => {
             if (err) {
                 log('Error getting player score:', err);
                 reject(err);

@@ -21,6 +21,7 @@ if (!fs.existsSync(logsDir)) {
 
 // 创建日志写入流
 const logStream = fs.createWriteStream(path.join(logsDir, 'game.log'), { flags: 'a' });
+const scoreLogStream = fs.createWriteStream(path.join(logsDir, 'score_updates.log'), { flags: 'a' });
 
 // 日志函数
 function log(message, data = null) {
@@ -28,6 +29,14 @@ function log(message, data = null) {
   const logMessage = `[${timestamp}] ${message}${data ? '\n' + JSON.stringify(data, null, 2) : ''}`;
   console.log(logMessage);
   logStream.write(logMessage + '\n');
+}
+
+// 分数更新日志函数
+function logScoreUpdate(message, data = null) {
+  const timestamp = new Date().toISOString();
+  const logMessage = `[${timestamp}] ${message}${data ? '\n' + JSON.stringify(data, null, 2) : ''}`;
+  console.log(logMessage);
+  scoreLogStream.write(logMessage + '\n');
 }
 
 const app = express();
@@ -380,9 +389,17 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('submitChoice', ({ gameId, playerId }) => {
+  socket.on('submitChoice', async ({ gameId, playerId }) => {
     const game = gameState.activeGames.get(gameId);
     if (!game) return;
+
+    // 记录初始状态
+    logScoreUpdate('[submitChoice] Starting choice submission:', {
+      gameId,
+      playerId,
+      questioner: game.questioner.nickname,
+      currentRound: game.round
+    });
 
     const selectedPlayer = game.aiPlayers.find(p => p.id === playerId);
     const isAI = !!selectedPlayer;
@@ -406,13 +423,13 @@ io.on('connection', (socket) => {
     // 计算提问者本轮可获得的积分
     let questionerPotentialScore;
     if (!isAI && game.round === 1) {
-      questionerPotentialScore = 8;
+      questionerPotentialScore = 8;  // 第1轮找出真人得8分
     } else if (!isAI && game.round === 2) {
-      questionerPotentialScore = 4;
+      questionerPotentialScore = 4;  // 第2轮找出真人得4分
     } else if (!isAI && game.round === 3) {
-      questionerPotentialScore = 2;
+      questionerPotentialScore = 2;  // 第3轮找出真人得2分
     } else {
-      questionerPotentialScore = 0;
+      questionerPotentialScore = 0;  // 其他情况不得分
     }
 
     // 计算回答者本轮可获得的积分
@@ -428,25 +445,62 @@ io.on('connection', (socket) => {
     // 更新游戏总分
     if (!isAI) {
       // 提问者找到真人，获得当前轮次的分数
-      game.score = (game.score || 0) + questionerPotentialScore;
-      // 回答者被找到，获得之前累积的分数
+      game.score = questionerPotentialScore;  // 直接设置为当前轮次的分数
+      logScoreUpdate('[submitChoice] Score calculation:', {
+        isAI,
+        round: game.round,
+        questionerPotentialScore
+      });
+      logScoreUpdate('[submitChoice] Updating questioner score:', {
+        oldScore: game.score,
+        addedScore: questionerPotentialScore,
+        newScore: game.score
+      });
+      // 回答者被找到，根据存活轮数计算分数
       if (game.humanPlayer) {
-        game.answererScore = game.answererScore || 0;
+        if (game.round === 1) {
+          game.answererScore = 0; // 第1轮出局不得分
+        } else if (game.round === 2) {
+          game.answererScore = 2; // 存活1轮得2分
+        } else if (game.round === 3) {
+          game.answererScore = 4; // 存活2轮得4分
+        }
       }
     } else {
       // 提问者没找到真人，分数不变
-      game.score = game.score || 0;
-      // 回答者存活，获得本轮分数
+      game.score = 0;  // 选错不得分
+      logScoreUpdate('[submitChoice] Updating questioner score:', {
+        oldScore: game.score,
+        addedScore: 0,
+        newScore: game.score
+      });
+      // 回答者存活，根据当前轮数累积分数
       if (game.humanPlayer) {
-        game.answererScore = (game.answererScore || 0) + answererPotentialScore;
+        if (game.round === 1) {
+          game.answererScore = 2; // 存活1轮
+        } else if (game.round === 2) {
+          game.answererScore = 4; // 存活2轮
+        } else if (game.round === 3) {
+          game.answererScore = 8; // 存活3轮
+        }
       }
     }
+
+    // 记录分数更新
+    logScoreUpdate('Score calculation:', {
+      isAI,
+      round: game.round,
+      questionerPotentialScore,
+      answererPotentialScore,
+      finalQuestionerScore: game.score,
+      finalAnswererScore: game.answererScore
+    });
 
     // 更新并发送分数给提问者和回答者
     io.to(game.questioner.id).emit('roundResult', {
       correct: !isAI,
       score: game.score,
-      potentialScore: !isAI ? 0 : (game.round === 3 ? 2 : (game.round === 2 ? 4 : 8)),
+      potentialScore: questionerPotentialScore,  // 使用计算好的潜在分数
       tauntMessage,
       remainingAI: game.aiPlayers.length
     });
@@ -455,7 +509,7 @@ io.on('connection', (socket) => {
       io.to(game.humanPlayer.id).emit('roundResult', {
         correct: !isAI,
         score: game.answererScore,
-        potentialScore: isAI ? (game.round === 3 ? 8 : (game.round === 2 ? 4 : 2)) : 0,
+        potentialScore: answererPotentialScore,  // 使用计算好的潜在分数
         tauntMessage,
         remainingAI: game.aiPlayers.length
       });
@@ -471,68 +525,100 @@ io.on('connection', (socket) => {
         reason = '达到最大回合';
       }
 
-      // 更新玩家分数
-      (async () => {
+      // 创建一个Promise来处理数据库更新
+      const updateScoresPromise = (async () => {
         try {
           // 在更新前查询玩家当前分数
-          const questioner = await getPlayer(game.questioner.id);
-          const answerer = game.humanPlayer ? await getPlayer(game.humanPlayer.id) : null;
-          
-          log('Before update - Player scores:', {
-            questioner: {
-              id: game.questioner.id,
-              nickname: questioner?.nickname,
-              currentTotalScore: questioner?.total_score,
-              newScore: game.score
-            },
-            answerer: answerer ? {
-              id: game.humanPlayer.id,
-              nickname: answerer?.nickname,
-              currentTotalScore: answerer?.total_score,
-              newScore: game.answererScore || 0
-            } : null
+          const questioner = await getPlayer(game.questioner.nickname);
+          const answerer = game.humanPlayer ? await getPlayer(game.humanPlayer.nickname) : null;
+
+          logScoreUpdate('[submitChoice] Starting database update:', {
+            questioner: game.questioner.nickname,
+            score: game.score,
+            reason
           });
+
+          logScoreUpdate('[submitChoice] Current questioner data:', questioner);
 
           // 更新提问者的分数
           if (game.score > 0) {
-            await updatePlayerScore(game.questioner.id, game.score);
-            const updatedQuestioner = await getPlayer(game.questioner.id);
-            log('After questioner update:', {
+            logScoreUpdate('Updating questioner score:', {
+              id: game.questioner.id,
+              nickname: game.questioner.nickname,
+              scoreToAdd: game.score,
+              updateParams: {
+                id: game.questioner.id,
+                score: game.score,
+                nickname: game.questioner.nickname
+              }
+            });
+            await updatePlayerScore(game.questioner.id, game.score, game.questioner.nickname);
+            const updatedQuestioner = await getPlayer(game.questioner.nickname);
+            logScoreUpdate('After questioner update:', {
               id: game.questioner.id,
               nickname: updatedQuestioner?.nickname,
               oldScore: questioner?.total_score,
               newTotalScore: updatedQuestioner?.total_score,
-              scoreAdded: game.score
+              scoreAdded: game.score,
+              updateSuccess: updatedQuestioner?.total_score === (questioner?.total_score || 0) + game.score
+            });
+          } else {
+            logScoreUpdate('Skipping questioner score update - no score to add', {
+              id: game.questioner.id,
+              nickname: game.questioner.nickname,
+              currentScore: game.score
             });
           }
 
           // 更新回答者的分数（如果不是AI）
           if (game.humanPlayer && (game.answererScore || 0) > 0) {
-            await updatePlayerScore(game.humanPlayer.id, game.answererScore || 0);
-            const updatedAnswerer = await getPlayer(game.humanPlayer.id);
-            log('After answerer update:', {
+            logScoreUpdate('Updating answerer score:', {
+              id: game.humanPlayer.id,
+              nickname: game.humanPlayer.nickname,
+              scoreToAdd: game.answererScore,
+              updateParams: {
+                id: game.humanPlayer.id,
+                score: game.answererScore,
+                nickname: game.humanPlayer.nickname
+              }
+            });
+            await updatePlayerScore(game.humanPlayer.id, game.answererScore || 0, game.humanPlayer.nickname);
+            const updatedAnswerer = await getPlayer(game.humanPlayer.nickname);
+            logScoreUpdate('After answerer update:', {
               id: game.humanPlayer.id,
               nickname: updatedAnswerer?.nickname,
               oldScore: answerer?.total_score,
               newTotalScore: updatedAnswerer?.total_score,
-              scoreAdded: game.answererScore || 0
+              scoreAdded: game.answererScore,
+              updateSuccess: updatedAnswerer?.total_score === (answerer?.total_score || 0) + (game.answererScore || 0)
+            });
+          } else {
+            logScoreUpdate('Skipping answerer score update:', {
+              hasHumanPlayer: !!game.humanPlayer,
+              answererScore: game.answererScore,
+              humanPlayerId: game.humanPlayer?.id,
+              humanPlayerNickname: game.humanPlayer?.nickname
             });
           }
           
           // 获取并广播最新的排行榜
           const leaderboard = await getLeaderboard();
-          log('New leaderboard:', leaderboard);
+          logScoreUpdate('New leaderboard:', leaderboard);
           
           // 特别监控"22"玩家的排名情况
           const player22 = leaderboard.find(p => p.nickname === '22');
           if (player22) {
-            log('Player "22" in leaderboard:', player22);
+            logScoreUpdate('Player "22" in leaderboard:', player22);
           }
           
           io.emit('leaderboardUpdate', { leaderboard });
           
         } catch (error) {
-          log('Error updating player scores:', error);
+          logScoreUpdate('Error updating player scores:', error);
+          logScoreUpdate('Error details:', {
+            error: error.message,
+            stack: error.stack
+          });
         }
       })();
 
@@ -551,16 +637,20 @@ io.on('connection', (socket) => {
         });
       }
 
-      // 重置所有玩家状态为未准备
-      const players = Array.from(io.sockets.adapter.rooms.get(gameId) || []);
-      players.forEach(playerId => {
-        const playerSocket = io.sockets.sockets.get(playerId);
-        if (playerSocket) {
-          playerSocket.data.ready = false;
-        }
-      });
+      // 等待数据库更新和玩家状态重置完成
+      await Promise.all([
+        updateScoresPromise,
+        // Reset all players' ready state
+        ...Array.from(io.sockets.adapter.rooms.get(gameId) || []).map(playerId => {
+          const playerSocket = io.sockets.sockets.get(playerId);
+          if (playerSocket) {
+            playerSocket.data.ready = false;
+          }
+          return Promise.resolve();
+        })
+      ]);
 
-      // 重置游戏状态
+      // 只有在所有更新完成后才重置游戏状态
       game.round = 1;
       game.score = 0;
       game.currentQuestion = null;
