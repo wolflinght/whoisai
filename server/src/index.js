@@ -462,27 +462,28 @@ io.on('connection', (socket) => {
       round: game.round,
       questionerScore: game.score,
       answererScore: game.answererScore,
-      potentialQuestionerScore: scores.questioner[game.round] || 0,
-      potentialAnswererScore: scores.answerer.survive[game.round] || 0
+      potentialQuestionerScore: scores.questioner[game.round + 1] || 0,  
+      potentialAnswererScore: scores.answerer.survive[game.round + 1] || 0  
     });
 
     // 更新并发送分数给提问者和回答者
     io.to(game.questioner.id).emit('roundResult', {
       correct: !isAI,
       score: game.score,
-      potentialScore: scores.questioner[game.round] || 0,  // 使用计算好的潜在分数
+      potentialScore: scores.questioner[game.round + 1] || 0,  
       tauntMessage,
-      remainingAI: game.aiPlayers.length
+      remainingAI: game.aiPlayers.length,
+      round: game.round + 1
     });
 
     if (game.humanPlayer) {
       io.to(game.humanPlayer.id).emit('roundResult', {
         correct: !isAI,
         score: game.answererScore,
-        potentialScore: scores.answerer.survive[game.round] || 0,  // 使用计算好的潜在分数
+        potentialScore: scores.answerer.survive[game.round + 1] || 0,  
         tauntMessage,
         remainingAI: game.aiPlayers.length,
-        questionerNickname: game.questioner.nickname  // 添加提问者昵称
+        round: game.round + 1
       });
     }
 
@@ -633,28 +634,7 @@ io.on('connection', (socket) => {
       game.round++;
       game.currentQuestion = null;
       game.answers = new Map();
-      game.modelGuesses = new Map();
-
-      // 计算下一轮的潜在分数
-      const nextRoundPotentialScores = {
-        questioner: game.round === 1 ? 8 : game.round === 2 ? 4 : 2,
-        answerer: game.round === 1 ? 2 : game.round === 2 ? 4 : 8
-      };
-
-      // 通知所有玩家进入下一轮
-      io.to(game.questioner.id).emit('nextRound', {
-        round: game.round,
-        remainingAI: game.aiPlayers.length,
-        potentialScore: nextRoundPotentialScores.questioner
-      });
-
-      if (game.humanPlayer) {
-        io.to(game.humanPlayer.id).emit('nextRound', {
-          round: game.round,
-          remainingAI: game.aiPlayers.length,
-          potentialScore: nextRoundPotentialScores.answerer
-        });
-      }
+      game.resultSent = false;
     }
   });
 

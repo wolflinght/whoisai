@@ -89,8 +89,8 @@
                 </div>
               </div>
               <div class="model-tags-hint">
-                <div><span style="color: red; font-weight: bold">主要目标：</span>选择下方最像人类的回答，点击确定提交</div>
-                <div><span style="color: blue; font-weight: bold">次要目标：</span>如果你确认某个AI来自某个模型，拖动上方标签到下方标记它，标记一个会消耗2分，如果正确会获得8分。同样点击确定提交</div>
+                <div class="hint-primary">主要目标：选择下方哪一条是真人回答，点击确认提交</div>
+                <div class="hint-secondary">次要目标：把拖动上方的标签到回答上标记一个AI是什么模型，点击确认提交。每次标记消耗2分，如果正确则会获得8分</div>
               </div>
             </div>
           </div>
@@ -102,7 +102,8 @@
               :key="index"
               class="answer-card"
               :class="{ 
-                'selected-answer-questioner': selectedPlayer === answer.playerId,
+                'selected': answer.playerId === selectedPlayer,
+                'highlighted': answer.playerId === selectedPlayer,
                 'drag-over': dragOverId === answer.playerId 
               }"
               @click="selectPlayer(answer.playerId)"
@@ -110,19 +111,21 @@
               @dragleave="dragLeave(answer.playerId)"
               @drop="dropModel($event, answer.playerId)"
             >
-              <div 
-                v-if="answer.tauntMessage" 
-                class="taunt-bubble"
-                :style="{ opacity: selectedPlayer === answer.playerId ? 1 : 0 }"
-              >
-                {{ answer.tauntMessage }}
-              </div>
-              <div class="answer-container" :class="{ selected: selectedPlayer === answer.playerId }">
-                <div v-if="selectedPlayer === answer.playerId" class="questioner-choice" style="position: absolute; top: 10px; right: 10px;">
-                  <span style="font-weight: bold">提问者的选择</span>
-                </div>
+              <div class="answer-content">
                 <div class="answer-number">{{ index + 1 }}号玩家</div>
                 <div class="answer-text">{{ answer.answer }}</div>
+                <div 
+                  v-if="answer.playerId === selectedPlayer" 
+                  class="questioner-choice"
+                >
+                  提问者当前的选择
+                </div>
+                <div 
+                  v-if="answer.tauntMessage" 
+                  class="taunt-bubble"
+                >
+                  {{ answer.tauntMessage }}
+                </div>
                 <div 
                   class="model-tag-container"
                   :class="{ 'has-tag': modelGuesses[answer.playerId] }"
@@ -206,23 +209,28 @@
               v-for="(answer, index) in shuffledAnswers" 
               :key="index"
               class="answer-card non-clickable"
-              :class="{ 'selected-answer-answerer': selectedPlayer === answer.playerId }"
+              :class="{ 
+                'selected': answer.playerId === selectedPlayer,
+                'highlighted': answer.playerId === selectedPlayer,
+              }"
               @dragover.prevent="dragOver($event, answer.playerId)"
               @drop.prevent="dropModel($event, answer.playerId)"
             >
               <div 
                 v-if="answer.tauntMessage" 
                 class="taunt-bubble"
-                :style="{ opacity: selectedPlayer === answer.playerId ? 1 : 0 }"
               >
                 {{ answer.tauntMessage }}
               </div>
-              <div class="answer-content" style="position: relative;">
-                <div v-if="selectedPlayer === answer.playerId" class="questioner-choice" style="position: absolute; top: -20px; right: 0;">
-                  <span style="font-weight: bold">提问者的选择</span>
-                </div>
+              <div class="answer-content">
                 <div class="answer-number">{{ index + 1 }}号玩家</div>
                 <div class="answer-text">{{ answer.answer }}</div>
+                <div 
+                  v-if="answer.playerId === selectedPlayer" 
+                  class="questioner-choice"
+                >
+                  提问者当前的选择
+                </div>
               </div>
             </el-card>
           </div>
@@ -250,12 +258,12 @@
       :show-close="false"
       :close-on-click-modal="false"
       :close-on-press-escape="false"
+      class="game-over-dialog"
     >
       <div class="game-over-content">
         <div class="game-over-message">{{ gameOverMessage }}</div>
         <div class="score-details">
-          <div class="final-score">最终得分：{{ finalScore || 0 }}</div>
-          <div class="score-breakdown">{{ scoreBreakdown }}</div>
+          <div class="final-score">本局得分：{{ roundScore }}</div>
         </div>
       </div>
       <template #footer>
@@ -315,7 +323,7 @@ const gameOverTitle = ref('')
 const gameOverMessage = ref('')
 const finalScore = ref(0)
 const scoreBreakdown = ref('')
-const questionerNickname = ref('')  // 添加提问者昵称
+const roundScore = ref(0)
 
 onMounted(() => {
   // 初始化游戏状态
@@ -376,23 +384,20 @@ const setupSocketListeners = () => {
     }
   })
 
-  socket.on('roundResult', ({ correct, score: newScore, potentialScore: newPotentialScore, tauntMessage, remainingAI: aiCount, questionerNickname: nickname }) => {
+  socket.on('roundResult', ({ correct, score: newScore, potentialScore: newPotentialScore, tauntMessage, remainingAI: aiCount }) => {
     console.log('[roundResult] Score update:', {
       oldScore: score.value,
       newScore,
       potentialScore: newPotentialScore,
       remainingAI: aiCount,
       isQuestioner: isQuestioner.value,
-      currentRound: currentRound.value,
-      questionerNickname: nickname
+      currentRound: currentRound.value
     });
     
     score.value = newScore
     potentialScore.value = newPotentialScore
     remainingAI.value = aiCount
-    if (nickname) {
-      questionerNickname.value = nickname
-    }
+    
     // 更新答案的嘲讽消息
     if (tauntMessage) {
       const selectedAnswer = answers.value.find(a => a.playerId === selectedPlayer.value)
@@ -439,22 +444,6 @@ const setupSocketListeners = () => {
     });
     handleGameOver(reason)
   })
-
-  socket.on('nextRound', ({ round, remainingAI: aiCount, potentialScore: newPotentialScore }) => {
-    currentRound.value = round
-    remainingAI.value = aiCount
-    gameState.value = 'asking'
-    answer.value = ''
-    currentQuestion.value = ''
-    answers.value = []
-    selectedPlayer.value = null
-    potentialScore.value = newPotentialScore  // 使用服务端发送的潜在分数
-
-    if (timerInterval) {
-      clearInterval(timerInterval)
-    }
-    nextRoundTimer.value = 0
-  })
 }
 
 const handleGameOver = (message) => {
@@ -479,11 +468,9 @@ const handleGameOver = (message) => {
     }
   }
   
-  finalScore.value = score.value
-  scoreBreakdown.value = isQuestioner.value ? 
-    '每轮找出真人的得分：第1轮8分，第2轮4分，第3轮2分，第4轮0分\n猜对AI模型：+4分（消耗2分）' :
-    '存活得分：第1轮2分，第2轮4分，第3轮8分'
-
+  roundScore.value = score.value
+  scoreBreakdown.value = ''
+  
   // 重置所有模型猜测
   store.commit('game/resetModelGuesses')
 
@@ -852,18 +839,14 @@ const availableModelTags = computed(() => {
   cursor: default;
 }
 
-.selected-answer-questioner {
+.selected {
   border: 2px solid #409EFF;
+  background-color: rgba(64, 158, 255, 0.1);
 }
 
-.selected-answer-answerer {
-  border: 2px solid #E6A23C;
-  background-color: rgba(230, 162, 60, 0.1);
-}
-
-.selected-answer-answerer .taunt-bubble {
-  opacity: 1;
-  transform: scale(1);
+.highlighted {
+  border-color: #409EFF;
+  background: rgba(64, 158, 255, 0.1);
 }
 
 .answer-content {
@@ -997,24 +980,117 @@ const availableModelTags = computed(() => {
   background: rgba(64, 158, 255, 0.1);
 }
 
-.answer-content {
-  position: relative;
-}
-
 .questioner-choice {
-  color: #67C23A;
-  font-size: 14px;
-  margin-top: 8px;
-  text-align: right;
-}
-
-.answer-container {
-  position: relative;
-}
-
-.answer-container.selected .questioner-choice {
   position: absolute;
   top: 10px;
   right: 10px;
+  color: #67C23A;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.model-tags-section {
+  background: #f5f7fa;
+  border-radius: 8px;
+  padding: 15px;
+  margin: 10px 0 20px;
+}
+
+.model-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.model-tags.used-tags {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #dcdfe6;
+}
+
+.model-tags-hint {
+  margin-top: 10px;
+  padding: 10px;
+  background: #f5f7fa;
+  border-radius: 4px;
+}
+
+.hint-primary {
+  color: #409EFF;
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.hint-secondary {
+  color: #606266;
+}
+
+.taunt-bubble {
+  position: absolute;
+  top: -60px;
+  right: 20px;
+  background: #ff4757;
+  color: white;
+  padding: 10px 15px;
+  border-radius: 8px;
+  font-size: 14px;
+  max-width: 300px;
+  z-index: 10;
+  opacity: 0;
+  transform-origin: bottom right;
+  transform: scale(0.8);
+  transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  box-shadow: 0 4px 12px rgba(255, 71, 87, 0.3);
+}
+
+.taunt-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  right: 20px;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 8px solid #ff4757;
+}
+
+.selected .taunt-bubble {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.game-over-dialog :deep(.el-dialog__title) {
+  font-size: 24px;
+  font-weight: bold;
+  color: #000;
+}
+
+.game-over-content {
+  text-align: center;
+  padding: 20px 0;
+}
+
+.game-over-message {
+  font-size: 18px;
+  color: #409EFF;
+  margin-bottom: 20px;
+}
+
+.score-details {
+  text-align: center;
+  background-color: #f5f7fa;
+  padding: 20px;
+  border-radius: 8px;
+}
+
+.final-score {
+  font-size: 28px;
+  color: #67c23a;
+  font-weight: bold;
+  margin-bottom: 15px;
+}
+
+.score-breakdown {
+  color: #606266;
+  line-height: 1.6;
 }
 </style>
