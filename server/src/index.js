@@ -12,32 +12,7 @@ const {
   generateSuggestedQuestions 
 } = require('./services/ai');
 const { db, upsertPlayer, updatePlayerScore, getPlayer, getLeaderboard } = require('./database');
-
-// 创建logs目录（如果不存在）
-const logsDir = path.join(__dirname, '../logs');
-if (!fs.existsSync(logsDir)) {
-  fs.mkdirSync(logsDir);
-}
-
-// 创建日志写入流
-const logStream = fs.createWriteStream(path.join(logsDir, 'game.log'), { flags: 'a' });
-const scoreLogStream = fs.createWriteStream(path.join(logsDir, 'score_updates.log'), { flags: 'a' });
-
-// 日志函数
-function log(message, data = null) {
-  const timestamp = new Date().toISOString();
-  const logMessage = `[${timestamp}] ${message}${data ? '\n' + JSON.stringify(data, null, 2) : ''}`;
-  console.log(logMessage);
-  logStream.write(logMessage + '\n');
-}
-
-// 分数更新日志函数
-function logScoreUpdate(message, data = null) {
-  const timestamp = new Date().toISOString();
-  const logMessage = `[${timestamp}] ${message}${data ? '\n' + JSON.stringify(data, null, 2) : ''}`;
-  console.log(logMessage);
-  scoreLogStream.write(logMessage + '\n');
-}
+const logger = require('./logger');
 
 const app = express();
 app.use(cors());
@@ -80,12 +55,16 @@ function createNewGame(players) {
     modelName: AI_MODELS[modelKey].name
   }));
 
-  const game = {
+  // 游戏初始化状态
+  const initialGameState = {
     id: gameId,
     questioner,
     humanPlayer: otherPlayer,
     aiPlayers,
     round: 1,
+    score: 0,  // 明确初始化分数为0
+    modelGuessScore: 0,  // 初始化模型猜测分数为0
+    answererScore: 0,
     scores: new Map(),
     currentQuestion: null,
     answers: new Map(),
@@ -101,10 +80,63 @@ function createNewGame(players) {
     }))
   };
 
-  game.scores.set(questioner.id, 0);
-  game.scores.set(otherPlayer.id, 0);
-  
+  // 为提问者和回答者初始化分数
+  initialGameState.scores.set(questioner.id, 0);
+  initialGameState.scores.set(otherPlayer.id, 0);
+
+  // 使用logger监控分数变化
+  const game = {
+    ...initialGameState,
+    score: logger.monitorVariable('game.score', 0).value,
+    modelGuessScore: logger.monitorVariable('game.modelGuessScore', 0).value,
+    answererScore: logger.monitorVariable('game.answererScore', 0).value,
+    scores: logger.monitorVariable('game.scores', initialGameState.scores).value
+  };
+
+  // 记录游戏初始化日志
+  logger.info('[createNewGame] Game Initialization Details:', {
+    gameId: game.id,
+    questioner: {
+      id: questioner.id,
+      nickname: questioner.nickname
+    },
+    humanPlayer: {
+      id: otherPlayer.id,
+      nickname: otherPlayer.nickname
+    },
+    initialScores: {
+      score: game.score,
+      answererScore: game.answererScore,
+      playerScores: Object.fromEntries(game.scores)
+    }
+  });
+
   gameState.activeGames.set(gameId, game);
+  
+  // 增加详细日志
+  logger.info('[createNewGame] Game Initialization Details:', {
+    gameId: game.id,
+    questioner: {
+      id: questioner.id,
+      nickname: questioner.nickname
+    },
+    humanPlayer: {
+      id: otherPlayer.id,
+      nickname: otherPlayer.nickname
+    },
+    aiPlayers: aiPlayers.map(ai => ({
+      id: ai.id,
+      modelKey: ai.modelKey,
+      nickname: ai.nickname
+    })),
+    initialScores: {
+      questioner: game.scores.get(questioner.id),
+      answerer: game.scores.get(otherPlayer.id),
+      gameScore: game.score,
+      answererScore: game.answererScore
+    }
+  });
+
   return game;
 }
 
@@ -121,23 +153,23 @@ function generateAIPlayers() {
 }
 
 io.on('connection', (socket) => {
-  log('[Socket] New connection:', socket.id);
+  logger.info('[Socket] New connection:', socket.id);
 
   socket.on('startMatching', async ({ nickname }) => {
     try {
-      log(`[startMatching] Player ${socket.id} (${nickname}) started matching`);
-      log(`[startMatching] Current waiting players:`, gameState.waitingPlayers.map(p => p.nickname));
+      logger.info(`[startMatching] Player ${socket.id} (${nickname}) started matching`);
+      logger.info(`[startMatching] Current waiting players:`, gameState.waitingPlayers.map(p => p.nickname));
       
       // 保存或更新玩家信息
       const result = await upsertPlayer(socket.id, nickname);
       
       // 如果是已存在的玩家，更新socket ID
       if (result.isExisting) {
-        log(`[startMatching] Existing player found:`, result);
+        logger.info(`[startMatching] Existing player found:`, result);
         // 断开可能存在的旧连接
         const oldSocket = gameState.playerSockets.get(result.id);
         if (oldSocket && oldSocket.id !== socket.id) {
-          log(`[startMatching] Disconnecting old socket:`, oldSocket.id);
+          logger.info(`[startMatching] Disconnecting old socket:`, oldSocket.id);
           oldSocket.disconnect(true);
           gameState.playerSockets.delete(result.id);
           
@@ -148,7 +180,7 @@ io.on('connection', (socket) => {
       
       // 获取玩家信息
       const playerInfo = await getPlayer(socket.id);
-      log('[startMatching] Player info:', playerInfo);
+      logger.info('[startMatching] Player info:', playerInfo);
       
       // 开始匹配
       const player = {
@@ -171,7 +203,7 @@ io.on('connection', (socket) => {
 
       // 如果有足够的玩家，开始游戏
       if (gameState.waitingPlayers.length >= 2) {
-        log('[startMatching] Starting new game with players:', 
+        logger.info('[startMatching] Starting new game with players:', 
           gameState.waitingPlayers.slice(0, 2).map(p => ({ id: p.id, nickname: p.nickname }))
         );
         const players = gameState.waitingPlayers.splice(0, 2);
@@ -195,29 +227,29 @@ io.on('connection', (socket) => {
         });
       }
     } catch (error) {
-      log('[startMatching] Error:', error);
+      logger.error('[startMatching] Error:', error);
       socket.emit('error', { message: 'Failed to start matching' });
     }
   });
 
   socket.on('playerReady', ({ gameId }) => {
-    log(`[playerReady] Player ${socket.id} ready in game ${gameId}`);
+    logger.info(`[playerReady] Player ${socket.id} ready in game ${gameId}`);
     const game = gameState.activeGames.get(gameId);
     if (!game) {
-      log(`[playerReady] Game not found: ${gameId}`);
+      logger.info(`[playerReady] Game not found: ${gameId}`);
       return;
     }
 
     // 确保玩家在正确的房间中
     if (!socket.rooms.has(gameId)) {
-      log(`[playerReady] Player not in game room, joining: ${gameId}`);
+      logger.info(`[playerReady] Player not in game room, joining: ${gameId}`);
       socket.join(gameId);
     }
 
     // 更新玩家准备状态
     const player = game.players.find(p => p.id === socket.id);
     if (player) {
-      log(`[playerReady] Found player in game, updating ready status:`, {
+      logger.info(`[playerReady] Found player in game, updating ready status:`, {
         id: player.id,
         nickname: player.nickname,
         wasReady: player.isReady
@@ -232,23 +264,23 @@ io.on('connection', (socket) => {
       const humanPlayers = game.players.filter(p => !p.isAI);
       const allReady = humanPlayers.every(p => p.isReady);
       
-      log(`[playerReady] Human players ready status:`, 
+      logger.info(`[playerReady] Human players ready status:`, 
         humanPlayers.map(p => ({ id: p.id, nickname: p.nickname, ready: p.isReady }))
       );
 
       if (allReady) {
-        log(`[playerReady] All human players ready, starting game`);
+        logger.info(`[playerReady] All human players ready, starting game`);
         // 更新游戏状态并广播游戏开始
         game.state = 'questioning';
         io.to(gameId).emit('gameStart');
       }
     } else {
-      log(`[playerReady] Player not found in game:`, socket.id);
+      logger.info(`[playerReady] Player not found in game:`, socket.id);
     }
   });
 
   socket.on('cancelMatching', () => {
-    log(`[cancelMatching] Player ${socket.id} cancelled matching`);
+    logger.info(`[cancelMatching] Player ${socket.id} cancelled matching`);
     // 从等待列表中移除玩家
     gameState.waitingPlayers = gameState.waitingPlayers.filter(p => p.id !== socket.id);
     
@@ -259,7 +291,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    log('[disconnect] Client disconnected:', socket.id);
+    logger.info('[disconnect] Client disconnected:', socket.id);
     // 从等待列表中移除断开连接的玩家
     gameState.waitingPlayers = gameState.waitingPlayers.filter(p => p.id !== socket.id);
     gameState.playerSockets.delete(socket.id);
@@ -277,8 +309,8 @@ io.on('connection', (socket) => {
     );
     
     if (game) {
-      log(`[selectPlayer] Broadcasting selection to game ${game.id}. Selected player: ${playerId}`);
-      log(`[selectPlayer] Current players in game:`, game.players.map(p => p.id));
+      logger.info(`[selectPlayer] Broadcasting selection to game ${game.id}. Selected player: ${playerId}`);
+      logger.info(`[selectPlayer] Current players in game:`, game.players.map(p => p.id));
       
       // 广播选择给所有玩家
       io.in(game.id).emit('playerSelected', { 
@@ -287,9 +319,9 @@ io.on('connection', (socket) => {
       });
       
       // 确认消息已发送
-      log(`[selectPlayer] Selection broadcast completed`);
+      logger.info(`[selectPlayer] Selection broadcast completed`);
     } else {
-      log(`[selectPlayer] Game not found for questioner ${socket.id}`);
+      logger.info(`[selectPlayer] Game not found for questioner ${socket.id}`);
     }
   });
 
@@ -359,33 +391,85 @@ io.on('connection', (socket) => {
     const game = gameState.activeGames.get(gameId);
     if (!game || socket.id !== game.questioner.id) return;
 
+    // 增加详细日志
+    logger.info('[guessModel] Guess Model Event Details:', {
+      gameId,
+      playerId,
+      modelGuess,
+      currentScore: game.score,
+      questionerId: game.questioner.id,
+      currentSocketId: socket.id,
+      gameScores: Object.fromEntries(game.scores),
+      gameState: {
+        round: game.round,
+        aiPlayers: game.aiPlayers.map(ai => ai.id)
+      }
+    });
+
     // 如果是取消标记，返还2分
     if (!modelGuess) {
-      game.score += 2;
+      game.modelGuessScore += 2;
       game.modelGuesses.delete(playerId);
+      
+      logger.info('[guessModel] Cancelling Model Guess:', {
+        playerId,
+        oldScore: game.modelGuessScore - 2,
+        newScore: game.modelGuessScore,
+        scoreChange: 2
+      });
+
       io.to(game.questioner.id).emit('scoreUpdate', {
-        score: game.score
+        score: game.score + game.modelGuessScore
       });
       return;
     }
 
     // 扣除2分猜测成本
-    if (game.score < 2) return; // 积分不足
-    game.score -= 2;
+    game.modelGuessScore -= 2;
+    logger.info('[guessModel] Deducting Score for Guess:', {
+      oldScore: game.modelGuessScore + 2,
+      newScore: game.modelGuessScore,
+      scoreChange: -2
+    });
 
     // 记录猜测
     game.modelGuesses.set(playerId, modelGuess);
 
     // 检查猜测是否正确
     const aiPlayer = game.aiPlayers.find(p => p.id === playerId);
+    
+    logger.info('[guessModel] AI Player Check:', {
+      playerId,
+      aiPlayer: aiPlayer ? {
+        id: aiPlayer.id,
+        modelKey: aiPlayer.modelKey
+      } : null,
+      modelGuess
+    });
+
     if (aiPlayer && aiPlayer.modelKey === modelGuess) {
-      // 猜对了，奖励6分
-      game.score += 6;
+      // 猜对了，加8分
+      const oldScore = game.modelGuessScore;
+      game.modelGuessScore += 8;
+      
+      logger.info('[guessModel] Correct Guess Detected:', {
+        playerId,
+        modelKey: aiPlayer.modelKey,
+        scoreBeforeBonus: oldScore,
+        scoreAfterBonus: game.modelGuessScore,
+        bonus: 8
+      });
     }
 
     // 通知提问者结果
+    logger.info('[guessModel] Score Update Notification:', {
+      questionerId: game.questioner.id,
+      modelGuessScore: game.modelGuessScore,
+      totalScore: game.score + game.modelGuessScore
+    });
+
     io.to(game.questioner.id).emit('scoreUpdate', {
-      score: game.score
+      score: game.score + game.modelGuessScore
     });
   });
 
@@ -393,17 +477,30 @@ io.on('connection', (socket) => {
     const game = gameState.activeGames.get(gameId);
     if (!game) return;
 
-    // 记录初始状态
-    logScoreUpdate('[submitChoice] Starting choice submission:', {
+    // 增加详细日志
+    logger.info('[submitChoice] Choice Submission Details:', {
       gameId,
       playerId,
-      questioner: game.questioner.nickname,
-      currentRound: game.round
+      currentRound: game.round,
+      questionerNickname: game.questioner.nickname,
+      initialQuestionerScore: game.score,
+      initialAnswererScore: game.answererScore,
+      gameScores: Object.fromEntries(game.scores)
     });
 
     const selectedPlayer = game.aiPlayers.find(p => p.id === playerId);
     const isAI = !!selectedPlayer;
     let tauntMessage = '';
+
+    logger.info('[submitChoice] Player Selection:', {
+      selectedPlayerId: playerId,
+      isAI,
+      aiPlayerDetails: selectedPlayer ? {
+        id: selectedPlayer.id,
+        modelKey: selectedPlayer.modelKey,
+        nickname: selectedPlayer.nickname
+      } : null
+    });
 
     if (isAI) {
       // 如果选择了AI，生成带有模型信息的嘲讽消息
@@ -444,6 +541,9 @@ io.on('connection', (socket) => {
     };
 
     // 计算并更新分数
+    const oldQuestionerScore = game.score;
+    const oldAnswererScore = game.answererScore;
+
     if (!isAI) {
       // 提问者找到真人
       game.score = scores.questioner[game.round] || 0;
@@ -456,20 +556,39 @@ io.on('connection', (socket) => {
       game.answererScore = game.humanPlayer ? scores.answerer.survive[game.round] || 0 : 0;
     }
 
-    // 记录分数更新
-    logScoreUpdate('Score calculation:', {
+    // 记录分数更新详细日志
+    logger.info('[submitChoice] Score Calculation Details:', {
       isAI,
       round: game.round,
-      questionerScore: game.score,
-      answererScore: game.answererScore,
-      potentialQuestionerScore: scores.questioner[game.round + 1] || 0,  
-      potentialAnswererScore: scores.answerer.survive[game.round + 1] || 0  
+      questionerScoreCalculation: {
+        baseScore: scores.questioner[game.round] || 0,
+        oldScore: oldQuestionerScore,
+        finalScore: game.score,
+        modelGuessScore: game.modelGuessScore,
+        totalScore: game.score + game.modelGuessScore,
+        scoreChange: game.score - oldQuestionerScore
+      },
+      answererScoreCalculation: {
+        baseScore: isAI 
+          ? scores.answerer.survive[game.round] || 0 
+          : scores.answerer.found[game.round] || 0,
+        oldScore: oldAnswererScore,
+        finalScore: game.answererScore,
+        scoreChange: game.answererScore - oldAnswererScore
+      },
+      potentialNextRoundScores: {
+        questioner: scores.questioner[game.round + 1] || 0,
+        answerer: {
+          found: scores.answerer.found[game.round + 1] || 0,
+          survive: scores.answerer.survive[game.round + 1] || 0
+        }
+      }
     });
 
     // 更新并发送分数给提问者和回答者
     io.to(game.questioner.id).emit('roundResult', {
       correct: !isAI,
-      score: game.score,
+      score: game.score + game.modelGuessScore,
       potentialScore: scores.questioner[game.round + 1] || 0,  
       tauntMessage,
       remainingAI: game.aiPlayers.length,
@@ -486,6 +605,11 @@ io.on('connection', (socket) => {
         round: game.round + 1
       });
     }
+
+    // 额外发送一个scoreUpdate事件来确保分数显示正确
+    io.to(game.questioner.id).emit('scoreUpdate', {
+      score: game.score
+    });
 
     if (!isAI || game.aiPlayers.length === 0 || game.round >= 3) {
       let reason;
@@ -504,17 +628,17 @@ io.on('connection', (socket) => {
           const questioner = await getPlayer(game.questioner.nickname);
           const answerer = game.humanPlayer ? await getPlayer(game.humanPlayer.nickname) : null;
 
-          logScoreUpdate('[submitChoice] Starting database update:', {
+          logger.info('[submitChoice] Starting database update:', {
             questioner: game.questioner.nickname,
             score: game.score,
             reason
           });
 
-          logScoreUpdate('[submitChoice] Current questioner data:', questioner);
+          logger.info('[submitChoice] Current questioner data:', questioner);
 
           // 更新提问者的分数
           if (game.score > 0) {
-            logScoreUpdate('Updating questioner score:', {
+            logger.info('Updating questioner score:', {
               id: game.questioner.id,
               nickname: game.questioner.nickname,
               scoreToAdd: game.score,
@@ -526,7 +650,7 @@ io.on('connection', (socket) => {
             });
             await updatePlayerScore(game.questioner.id, game.score, game.questioner.nickname);
             const updatedQuestioner = await getPlayer(game.questioner.nickname);
-            logScoreUpdate('After questioner update:', {
+            logger.info('After questioner update:', {
               id: game.questioner.id,
               nickname: updatedQuestioner?.nickname,
               oldScore: questioner?.total_score,
@@ -535,7 +659,7 @@ io.on('connection', (socket) => {
               updateSuccess: updatedQuestioner?.total_score === (questioner?.total_score || 0) + game.score
             });
           } else {
-            logScoreUpdate('Skipping questioner score update - no score to add', {
+            logger.info('Skipping questioner score update - no score to add', {
               id: game.questioner.id,
               nickname: game.questioner.nickname,
               currentScore: game.score
@@ -544,7 +668,7 @@ io.on('connection', (socket) => {
 
           // 更新回答者的分数（如果不是AI）
           if (game.humanPlayer && (game.answererScore || 0) > 0) {
-            logScoreUpdate('Updating answerer score:', {
+            logger.info('Updating answerer score:', {
               id: game.humanPlayer.id,
               nickname: game.humanPlayer.nickname,
               scoreToAdd: game.answererScore,
@@ -556,7 +680,7 @@ io.on('connection', (socket) => {
             });
             await updatePlayerScore(game.humanPlayer.id, game.answererScore || 0, game.humanPlayer.nickname);
             const updatedAnswerer = await getPlayer(game.humanPlayer.nickname);
-            logScoreUpdate('After answerer update:', {
+            logger.info('After answerer update:', {
               id: game.humanPlayer.id,
               nickname: updatedAnswerer?.nickname,
               oldScore: answerer?.total_score,
@@ -565,7 +689,7 @@ io.on('connection', (socket) => {
               updateSuccess: updatedAnswerer?.total_score === (answerer?.total_score || 0) + (game.answererScore || 0)
             });
           } else {
-            logScoreUpdate('Skipping answerer score update:', {
+            logger.info('Skipping answerer score update:', {
               hasHumanPlayer: !!game.humanPlayer,
               answererScore: game.answererScore,
               humanPlayerId: game.humanPlayer?.id,
@@ -575,19 +699,19 @@ io.on('connection', (socket) => {
           
           // 获取并广播最新的排行榜
           const leaderboard = await getLeaderboard();
-          logScoreUpdate('New leaderboard:', leaderboard);
+          logger.info('New leaderboard:', leaderboard);
           
           // 特别监控"22"玩家的排名情况
           const player22 = leaderboard.find(p => p.nickname === '22');
           if (player22) {
-            logScoreUpdate('Player "22" in leaderboard:', player22);
+            logger.info('Player "22" in leaderboard:', player22);
           }
           
           io.emit('leaderboardUpdate', { leaderboard });
           
         } catch (error) {
-          logScoreUpdate('Error updating player scores:', error);
-          logScoreUpdate('Error details:', {
+          logger.error('Error updating player scores:', error);
+          logger.error('Error details:', {
             error: error.message,
             stack: error.stack
           });
@@ -662,7 +786,7 @@ io.on('connection', (socket) => {
       const leaderboard = await getLeaderboard();
       socket.emit('leaderboardUpdate', { leaderboard });
     } catch (error) {
-      log('Error getting leaderboard:', error);
+      logger.error('Error getting leaderboard:', error);
       socket.emit('error', { message: 'Failed to get leaderboard' });
     }
   });
@@ -670,5 +794,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  log(`Server is running on port ${PORT}`);
+  logger.info(`Server is running on port ${PORT}`);
 });
