@@ -7,6 +7,7 @@ const state = {
   currentQuestion: null,
   gameState: 'waiting',
   score: 0,
+  modelGuessScore: 0,
   round: 1,
   availableModels: [],
   answers: [],
@@ -35,8 +36,11 @@ const mutations = {
   setGameState(state, gameState) {
     state.gameState = gameState
   },
-  setScore(state, score) {
+  setScore(state, { score, modelGuessScore }) {
     state.score = score
+    if (modelGuessScore !== undefined) {
+      state.modelGuessScore = modelGuessScore
+    }
   },
   setRound(state, round) {
     state.round = round
@@ -62,10 +66,12 @@ const mutations = {
   },
   resetGame(state) {
     state.gameId = null
+    state.isQuestioner = false
     state.players = []
     state.currentQuestion = null
     state.gameState = 'waiting'
     state.score = 0
+    state.modelGuessScore = 0
     state.round = 1
     state.availableModels = []
     state.answers = []
@@ -79,8 +85,11 @@ const mutations = {
       isReady: false
     }))
   },
-  updateScore(state, { score }) {
+  updateScore(state, { score, modelGuessScore }) {
     state.score = score
+    if (modelGuessScore !== undefined) {
+      state.modelGuessScore = modelGuessScore
+    }
   },
   updateModelGuess(state, { playerId, modelGuess }) {
     if (modelGuess === null) {
@@ -105,7 +114,7 @@ const actions = {
     commit('setPlayers', players || [])
     commit('setAvailableModels', availableModels || [])
     commit('setGameState', 'waiting')
-    commit('setScore', 0)
+    commit('setScore', { score: 0 })
     commit('setRound', 1)
     commit('setRemainingAI', remainingAI || 0)
   },
@@ -147,9 +156,9 @@ const actions = {
     commit('setGameState', 'choosing')
   },
 
-  updateGameState({ commit }, { gameState, score, round }) {
+  updateGameState({ commit }, { gameState, score, round, modelGuessScore }) {
     if (gameState) commit('setGameState', gameState)
-    if (score !== undefined) commit('updateScore', { score })
+    if (score !== undefined) commit('updateScore', { score, modelGuessScore })
     if (round) commit('setRound', round)
   },
 

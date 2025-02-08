@@ -48,7 +48,7 @@ function createNewGame(players) {
   const selectedModels = getRandomModels(3);
   const aiPlayers = selectedModels.map((modelKey, index) => ({
     id: `ai-${index}`,
-    nickname: AI_MODELS[modelKey].name,
+    nickname: `AI玩家${index + 1}`,
     avatar: `/avatars/ai${index + 1}.png`,
     isAI: true,
     modelKey,
@@ -144,7 +144,7 @@ function generateAIPlayers() {
   const selectedModels = getRandomModels(3);
   return selectedModels.map((modelKey, index) => ({
     id: `ai-${index}`,
-    nickname: AI_MODELS[modelKey].name,
+    nickname: `AI玩家${index + 1}`,
     avatar: `/avatars/ai${index + 1}.png`,
     isAI: true,
     modelKey,
@@ -419,7 +419,9 @@ io.on('connection', (socket) => {
       });
 
       io.to(game.questioner.id).emit('scoreUpdate', {
-        score: game.score + game.modelGuessScore
+        score: game.score,
+        modelGuessScore: game.modelGuessScore,
+        totalScore: game.score + game.modelGuessScore
       });
       return;
     }
@@ -469,7 +471,9 @@ io.on('connection', (socket) => {
     });
 
     io.to(game.questioner.id).emit('scoreUpdate', {
-      score: game.score + game.modelGuessScore
+      score: game.score,
+      modelGuessScore: game.modelGuessScore,
+      totalScore: game.score + game.modelGuessScore
     });
   });
 
@@ -588,7 +592,9 @@ io.on('connection', (socket) => {
     // 更新并发送分数给提问者和回答者
     io.to(game.questioner.id).emit('roundResult', {
       correct: !isAI,
-      score: game.score + game.modelGuessScore,
+      score: game.score,
+      modelGuessScore: game.modelGuessScore,
+      totalScore: game.score + game.modelGuessScore,
       potentialScore: scores.questioner[game.round + 1] || 0,  
       tauntMessage,
       remainingAI: game.aiPlayers.length,
@@ -599,6 +605,8 @@ io.on('connection', (socket) => {
       io.to(game.humanPlayer.id).emit('roundResult', {
         correct: !isAI,
         score: game.answererScore,
+        modelGuessScore: 0,
+        totalScore: game.answererScore,
         potentialScore: scores.answerer.survive[game.round + 1] || 0,  
         tauntMessage,
         remainingAI: game.aiPlayers.length,
@@ -608,7 +616,9 @@ io.on('connection', (socket) => {
 
     // 额外发送一个scoreUpdate事件来确保分数显示正确
     io.to(game.questioner.id).emit('scoreUpdate', {
-      score: game.score
+      score: game.score,
+      modelGuessScore: game.modelGuessScore,
+      totalScore: game.score + game.modelGuessScore
     });
 
     if (!isAI || game.aiPlayers.length === 0 || game.round >= 3) {

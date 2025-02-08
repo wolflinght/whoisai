@@ -9,7 +9,7 @@
           </div>
         </div>
         <div class="header-bottom">
-          <div class="score">本局积分: {{ score || 0 }}{{ potentialScore ? ` (本轮${isQuestioner ? '胜利' : '生存'}可获得${potentialScore}分)` : '' }}</div>
+          <div class="score">本局积分: {{ score || 0 }}{{ potentialScore ? ` (本轮${isQuestioner ? '胜利' : '生存'}可获得${potentialScore}分)` : '' }}{{ modelGuessScore ? ` ${modelGuessScore > 0 ? '+' : ''}${modelGuessScore}（猜模型得分）` : '' }}</div>
           <div v-if="nextRoundTimer > 0" class="next-round-timer">
             {{ nextRoundTimer }}秒后开始下一轮
           </div>
@@ -258,16 +258,15 @@
       :show-close="false"
       :close-on-click-modal="false"
       :close-on-press-escape="false"
-      class="game-over-dialog"
     >
-      <div class="game-over-content">
-        <div class="game-over-message">{{ gameOverMessage }}</div>
-        <div class="score-details">
-          <div class="final-score">本局得分：{{ roundScore }}</div>
-        </div>
-      </div>
+      <div class="game-over-message" style="font-size: 16px; margin-bottom: 20px;">{{ gameOverMessage }}</div>
+      <div class="score-total" style="font-size: 24px; font-weight: bold; margin-bottom: 15px;">本局总分：{{ score + modelGuessScore }}</div>
+      <div class="score-detail" style="font-size: 16px; color: #606266; margin: 8px 0;">轮数得分：{{ score }}</div>
+      <div class="score-detail" :style="{ fontSize: '16px', color: modelGuessScore < 0 ? '#F56C6C' : '#606266', margin: '8px 0' }">猜模型得分：{{ modelGuessScore }}</div>
       <template #footer>
-        <el-button type="primary" @click="returnToIntro">返回大厅</el-button>
+        <span class="dialog-footer">
+          <el-button type="primary" @click="returnToIntro">返回大厅</el-button>
+        </span>
       </template>
     </el-dialog>
   </div>
@@ -286,6 +285,7 @@ const router = useRouter()
 // 游戏状态
 const currentRound = ref(1)
 const score = ref(0)
+const modelGuessScore = ref(0)
 const potentialScore = ref(0)
 const gameState = ref('asking')
 const isQuestioner = ref(false)
@@ -384,17 +384,19 @@ const setupSocketListeners = () => {
     }
   })
 
-  socket.on('roundResult', ({ correct, score: newScore, potentialScore: newPotentialScore, tauntMessage, remainingAI: aiCount }) => {
+  socket.on('roundResult', ({ correct, score: newScore, modelGuessScore: newModelGuessScore, potentialScore: newPotentialScore, tauntMessage, remainingAI: aiCount }) => {
     console.log('[roundResult] Score update:', {
       oldScore: score.value,
       newScore,
-      potentialScore: newPotentialScore,
+      newModelGuessScore,
+      newPotentialScore,
       remainingAI: aiCount,
       isQuestioner: isQuestioner.value,
       currentRound: currentRound.value
     });
     
     score.value = newScore
+    modelGuessScore.value = newModelGuessScore
     potentialScore.value = newPotentialScore
     remainingAI.value = aiCount
     
