@@ -420,87 +420,57 @@ io.on('connection', (socket) => {
       game.aiPlayers = game.aiPlayers.filter(p => p.id !== playerId);
     }
 
-    // 计算提问者本轮可获得的积分
-    let questionerPotentialScore;
-    if (!isAI && game.round === 1) {
-      questionerPotentialScore = 8;  // 第1轮找出真人得8分
-    } else if (!isAI && game.round === 2) {
-      questionerPotentialScore = 4;  // 第2轮找出真人得4分
-    } else if (!isAI && game.round === 3) {
-      questionerPotentialScore = 2;  // 第3轮找出真人得2分
-    } else {
-      questionerPotentialScore = 0;  // 其他情况不得分
-    }
+    // 计算本轮分数
+    const scores = {
+      // 提问者在不同轮次找到真人的得分
+      questioner: {
+        1: 8,  // 第1轮找到真人得8分
+        2: 4,  // 第2轮找到真人得4分
+        3: 2   // 第3轮找到真人得2分
+      },
+      // 回答者在不同轮次的得分
+      answerer: {
+        found: {  // 被找到时的得分
+          1: 0,   // 第1轮被找到得0分
+          2: 2,   // 第2轮被找到得2分
+          3: 4    // 第3轮被找到得4分
+        },
+        survive: {  // 存活时的得分
+          1: 2,    // 第1轮存活得2分
+          2: 4,    // 第2轮存活得4分
+          3: 8     // 第3轮存活得8分
+        }
+      }
+    };
 
-    // 计算回答者本轮可获得的积分
-    let answererPotentialScore;
-    if (game.round === 1) {
-      answererPotentialScore = 2;
-    } else if (game.round === 2) {
-      answererPotentialScore = 4;
-    } else {
-      answererPotentialScore = 8;
-    }
-
-    // 更新游戏总分
+    // 计算并更新分数
     if (!isAI) {
-      // 提问者找到真人，获得当前轮次的分数
-      game.score = questionerPotentialScore;  // 直接设置为当前轮次的分数
-      logScoreUpdate('[submitChoice] Score calculation:', {
-        isAI,
-        round: game.round,
-        questionerPotentialScore
-      });
-      logScoreUpdate('[submitChoice] Updating questioner score:', {
-        oldScore: game.score,
-        addedScore: questionerPotentialScore,
-        newScore: game.score
-      });
-      // 回答者被找到，根据存活轮数计算分数
-      if (game.humanPlayer) {
-        if (game.round === 1) {
-          game.answererScore = 0; // 第1轮出局不得分
-        } else if (game.round === 2) {
-          game.answererScore = 2; // 存活1轮得2分
-        } else if (game.round === 3) {
-          game.answererScore = 4; // 存活2轮得4分
-        }
-      }
+      // 提问者找到真人
+      game.score = scores.questioner[game.round] || 0;
+      // 回答者被找到
+      game.answererScore = game.humanPlayer ? scores.answerer.found[game.round] || 0 : 0;
     } else {
-      // 提问者没找到真人，分数不变
-      game.score = 0;  // 选错不得分
-      logScoreUpdate('[submitChoice] Updating questioner score:', {
-        oldScore: game.score,
-        addedScore: 0,
-        newScore: game.score
-      });
-      // 回答者存活，根据当前轮数累积分数
-      if (game.humanPlayer) {
-        if (game.round === 1) {
-          game.answererScore = 2; // 存活1轮
-        } else if (game.round === 2) {
-          game.answererScore = 4; // 存活2轮
-        } else if (game.round === 3) {
-          game.answererScore = 8; // 存活3轮
-        }
-      }
+      // 提问者没找到真人
+      game.score = 0;
+      // 回答者继续存活
+      game.answererScore = game.humanPlayer ? scores.answerer.survive[game.round] || 0 : 0;
     }
 
     // 记录分数更新
     logScoreUpdate('Score calculation:', {
       isAI,
       round: game.round,
-      questionerPotentialScore,
-      answererPotentialScore,
-      finalQuestionerScore: game.score,
-      finalAnswererScore: game.answererScore
+      questionerScore: game.score,
+      answererScore: game.answererScore,
+      potentialQuestionerScore: scores.questioner[game.round] || 0,
+      potentialAnswererScore: scores.answerer.survive[game.round] || 0
     });
 
     // 更新并发送分数给提问者和回答者
     io.to(game.questioner.id).emit('roundResult', {
       correct: !isAI,
       score: game.score,
-      potentialScore: questionerPotentialScore,  // 使用计算好的潜在分数
+      potentialScore: scores.questioner[game.round] || 0,  // 使用计算好的潜在分数
       tauntMessage,
       remainingAI: game.aiPlayers.length
     });
@@ -509,7 +479,7 @@ io.on('connection', (socket) => {
       io.to(game.humanPlayer.id).emit('roundResult', {
         correct: !isAI,
         score: game.answererScore,
-        potentialScore: answererPotentialScore,  // 使用计算好的潜在分数
+        potentialScore: scores.answerer.survive[game.round] || 0,  // 使用计算好的潜在分数
         tauntMessage,
         remainingAI: game.aiPlayers.length
       });

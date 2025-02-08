@@ -332,6 +332,19 @@ const initializeGame = () => {
   currentQuestion.value = store.state.game.currentQuestion
   answers.value = store.state.game.answers
   remainingAI.value = store.state.game.remainingAI
+
+  // 设置初始的潜在分数
+  if (isQuestioner.value) {
+    // 提问者的潜在分数
+    potentialScore.value = currentRound.value === 1 ? 8 : 
+                          currentRound.value === 2 ? 4 : 
+                          currentRound.value === 3 ? 2 : 0;
+  } else {
+    // 回答者的潜在分数
+    potentialScore.value = currentRound.value === 1 ? 2 : 
+                          currentRound.value === 2 ? 4 : 
+                          currentRound.value === 3 ? 8 : 0;
+  }
 }
 
 const setupSocketListeners = () => {
@@ -364,20 +377,7 @@ const setupSocketListeners = () => {
     });
     
     score.value = newScore
-    // 根据当前轮数设置潜在得分
-    if (isQuestioner.value) {
-      if (currentRound.value === 1) {
-        potentialScore.value = 8;
-      } else if (currentRound.value === 2) {
-        potentialScore.value = 4;
-      } else if (currentRound.value === 3) {
-        potentialScore.value = 2;
-      } else {
-        potentialScore.value = 0;
-      }
-    } else {
-      potentialScore.value = newPotentialScore;
-    }
+    potentialScore.value = newPotentialScore
     remainingAI.value = aiCount
     
     // 更新答案的嘲讽消息
@@ -402,7 +402,9 @@ const setupSocketListeners = () => {
         currentQuestion.value = ''
         answers.value = []
         selectedPlayer.value = null
-        currentRound.value++
+        if (currentRound.value < 3) {
+          currentRound.value++
+        }
       }
     }, 1000)
   })
