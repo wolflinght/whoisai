@@ -217,12 +217,12 @@
               >
                 {{ answer.tauntMessage }}
               </div>
-              <div class="answer-content">
-                <div class="answer-number">{{ index + 1 }}号玩家</div>
-                <div class="answer-text">{{ answer.answer }}</div>
-                <div v-if="selectedPlayer === answer.playerId" class="questioner-choice">
+              <div class="answer-content" style="position: relative;">
+                <div v-if="selectedPlayer === answer.playerId" class="questioner-choice" style="position: absolute; top: -20px; right: 0;">
                   <span style="font-weight: bold">提问者的选择</span>
                 </div>
+                <div class="answer-number">{{ index + 1 }}号玩家</div>
+                <div class="answer-text">{{ answer.answer }}</div>
               </div>
             </el-card>
           </div>
