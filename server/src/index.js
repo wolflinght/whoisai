@@ -481,7 +481,8 @@ io.on('connection', (socket) => {
         score: game.answererScore,
         potentialScore: scores.answerer.survive[game.round] || 0,  // 使用计算好的潜在分数
         tauntMessage,
-        remainingAI: game.aiPlayers.length
+        remainingAI: game.aiPlayers.length,
+        questionerNickname: game.questioner.nickname  // 添加提问者昵称
       });
     }
 
@@ -632,7 +633,28 @@ io.on('connection', (socket) => {
       game.round++;
       game.currentQuestion = null;
       game.answers = new Map();
-      game.resultSent = false;
+      game.modelGuesses = new Map();
+
+      // 计算下一轮的潜在分数
+      const nextRoundPotentialScores = {
+        questioner: game.round === 1 ? 8 : game.round === 2 ? 4 : 2,
+        answerer: game.round === 1 ? 2 : game.round === 2 ? 4 : 8
+      };
+
+      // 通知所有玩家进入下一轮
+      io.to(game.questioner.id).emit('nextRound', {
+        round: game.round,
+        remainingAI: game.aiPlayers.length,
+        potentialScore: nextRoundPotentialScores.questioner
+      });
+
+      if (game.humanPlayer) {
+        io.to(game.humanPlayer.id).emit('nextRound', {
+          round: game.round,
+          remainingAI: game.aiPlayers.length,
+          potentialScore: nextRoundPotentialScores.answerer
+        });
+      }
     }
   });
 

@@ -214,6 +214,9 @@
               <div class="answer-content">
                 <div class="answer-number">{{ index + 1 }}号玩家</div>
                 <div class="answer-text">{{ answer.answer }}</div>
+                <div v-if="selectedPlayer === answer.playerId" class="questioner-choice">
+                  {{ questionerNickname }}的选择
+                </div>
               </div>
             </el-card>
           </div>
@@ -306,6 +309,7 @@ const gameOverTitle = ref('')
 const gameOverMessage = ref('')
 const finalScore = ref(0)
 const scoreBreakdown = ref('')
+const questionerNickname = ref('')  // 添加提问者昵称
 
 onMounted(() => {
   // 初始化游戏状态
@@ -366,20 +370,23 @@ const setupSocketListeners = () => {
     }
   })
 
-  socket.on('roundResult', ({ correct, score: newScore, potentialScore: newPotentialScore, tauntMessage, remainingAI: aiCount }) => {
+  socket.on('roundResult', ({ correct, score: newScore, potentialScore: newPotentialScore, tauntMessage, remainingAI: aiCount, questionerNickname: nickname }) => {
     console.log('[roundResult] Score update:', {
       oldScore: score.value,
       newScore,
       potentialScore: newPotentialScore,
       remainingAI: aiCount,
       isQuestioner: isQuestioner.value,
-      currentRound: currentRound.value
+      currentRound: currentRound.value,
+      questionerNickname: nickname
     });
     
     score.value = newScore
     potentialScore.value = newPotentialScore
     remainingAI.value = aiCount
-    
+    if (nickname) {
+      questionerNickname.value = nickname
+    }
     // 更新答案的嘲讽消息
     if (tauntMessage) {
       const selectedAnswer = answers.value.find(a => a.playerId === selectedPlayer.value)
@@ -425,6 +432,22 @@ const setupSocketListeners = () => {
       currentRound: currentRound.value
     });
     handleGameOver(reason)
+  })
+
+  socket.on('nextRound', ({ round, remainingAI: aiCount, potentialScore: newPotentialScore }) => {
+    currentRound.value = round
+    remainingAI.value = aiCount
+    gameState.value = 'asking'
+    answer.value = ''
+    currentQuestion.value = ''
+    answers.value = []
+    selectedPlayer.value = null
+    potentialScore.value = newPotentialScore  // 使用服务端发送的潜在分数
+
+    if (timerInterval) {
+      clearInterval(timerInterval)
+    }
+    nextRoundTimer.value = 0
   })
 }
 
@@ -1102,5 +1125,16 @@ const availableModelTags = computed(() => {
 .answer-card.drag-over .model-tag-container {
   border-color: #409eff;
   background: rgba(64, 158, 255, 0.1);
+}
+
+.answer-content {
+  position: relative;
+}
+
+.questioner-choice {
+  color: #67C23A;
+  font-size: 14px;
+  margin-top: 8px;
+  text-align: right;
 }
 </style>
