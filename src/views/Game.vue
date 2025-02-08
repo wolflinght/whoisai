@@ -258,12 +258,12 @@
       :show-close="false"
       :close-on-click-modal="false"
       :close-on-press-escape="false"
+      class="game-over-dialog"
     >
       <div class="game-over-content">
         <div class="game-over-message">{{ gameOverMessage }}</div>
         <div class="score-details">
-          <div class="final-score">最终得分：{{ finalScore || 0 }}</div>
-          <div class="score-breakdown">{{ scoreBreakdown }}</div>
+          <div class="final-score">本局得分：{{ roundScore }}</div>
         </div>
       </div>
       <template #footer>
@@ -323,6 +323,7 @@ const gameOverTitle = ref('')
 const gameOverMessage = ref('')
 const finalScore = ref(0)
 const scoreBreakdown = ref('')
+const roundScore = ref(0)
 
 onMounted(() => {
   // 初始化游戏状态
@@ -467,11 +468,9 @@ const handleGameOver = (message) => {
     }
   }
   
-  finalScore.value = score.value
-  scoreBreakdown.value = isQuestioner.value ? 
-    '每轮找出真人的得分：第1轮8分，第2轮4分，第3轮2分，第4轮0分\n猜对AI模型：+4分（消耗2分）' :
-    '存活得分：第1轮2分，第2轮4分，第3轮8分'
-
+  roundScore.value = score.value
+  scoreBreakdown.value = ''
+  
   // 重置所有模型猜测
   store.commit('game/resetModelGuesses')
 
@@ -1057,5 +1056,41 @@ const availableModelTags = computed(() => {
 .selected .taunt-bubble {
   opacity: 1;
   transform: scale(1);
+}
+
+.game-over-dialog :deep(.el-dialog__title) {
+  font-size: 24px;
+  font-weight: bold;
+  color: #000;
+}
+
+.game-over-content {
+  text-align: center;
+  padding: 20px 0;
+}
+
+.game-over-message {
+  font-size: 18px;
+  color: #409EFF;
+  margin-bottom: 20px;
+}
+
+.score-details {
+  text-align: center;
+  background-color: #f5f7fa;
+  padding: 20px;
+  border-radius: 8px;
+}
+
+.final-score {
+  font-size: 28px;
+  color: #67c23a;
+  font-weight: bold;
+  margin-bottom: 15px;
+}
+
+.score-breakdown {
+  color: #606266;
+  line-height: 1.6;
 }
 </style>
