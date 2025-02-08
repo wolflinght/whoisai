@@ -88,7 +88,10 @@
                   {{ model }}
                 </div>
               </div>
-              <div class="model-tags-hint">拖动上方的标签到回答上标记AI模型，每次标记消耗2分</div>
+              <div class="model-tags-hint">
+                <div class="hint-primary">主要目标：选择下方哪一条是真人回答，点击确认提交</div>
+                <div class="hint-secondary">次要目标：把拖动上方的标签到回答上标记一个AI是什么模型，点击确认提交。每次标记消耗2分，如果正确则会获得8分</div>
+              </div>
             </div>
           </div>
           
@@ -99,7 +102,8 @@
               :key="index"
               class="answer-card"
               :class="{ 
-                'selected-answer-questioner': selectedPlayer === answer.playerId,
+                'selected': answer.playerId === selectedPlayer,
+                'highlighted': answer.playerId === selectedPlayer,
                 'drag-over': dragOverId === answer.playerId 
               }"
               @click="selectPlayer(answer.playerId)"
@@ -107,16 +111,21 @@
               @dragleave="dragLeave(answer.playerId)"
               @drop="dropModel($event, answer.playerId)"
             >
-              <div 
-                v-if="answer.tauntMessage" 
-                class="taunt-bubble"
-                :style="{ opacity: selectedPlayer === answer.playerId ? 1 : 0 }"
-              >
-                {{ answer.tauntMessage }}
-              </div>
               <div class="answer-content">
                 <div class="answer-number">{{ index + 1 }}号玩家</div>
                 <div class="answer-text">{{ answer.answer }}</div>
+                <div 
+                  v-if="answer.playerId === selectedPlayer" 
+                  class="questioner-choice"
+                >
+                  提问者当前的选择
+                </div>
+                <div 
+                  v-if="answer.tauntMessage" 
+                  class="taunt-bubble"
+                >
+                  {{ answer.tauntMessage }}
+                </div>
                 <div 
                   class="model-tag-container"
                   :class="{ 'has-tag': modelGuesses[answer.playerId] }"
@@ -200,20 +209,28 @@
               v-for="(answer, index) in shuffledAnswers" 
               :key="index"
               class="answer-card non-clickable"
-              :class="{ 'selected-answer-answerer': selectedPlayer === answer.playerId }"
+              :class="{ 
+                'selected': answer.playerId === selectedPlayer,
+                'highlighted': answer.playerId === selectedPlayer,
+              }"
               @dragover.prevent="dragOver($event, answer.playerId)"
               @drop.prevent="dropModel($event, answer.playerId)"
             >
               <div 
                 v-if="answer.tauntMessage" 
                 class="taunt-bubble"
-                :style="{ opacity: selectedPlayer === answer.playerId ? 1 : 0 }"
               >
                 {{ answer.tauntMessage }}
               </div>
               <div class="answer-content">
                 <div class="answer-number">{{ index + 1 }}号玩家</div>
                 <div class="answer-text">{{ answer.answer }}</div>
+                <div 
+                  v-if="answer.playerId === selectedPlayer" 
+                  class="questioner-choice"
+                >
+                  提问者当前的选择
+                </div>
               </div>
             </el-card>
           </div>
@@ -823,18 +840,14 @@ const availableModelTags = computed(() => {
   cursor: default;
 }
 
-.selected-answer-questioner {
+.selected {
   border: 2px solid #409EFF;
+  background-color: rgba(64, 158, 255, 0.1);
 }
 
-.selected-answer-answerer {
-  border: 2px solid #E6A23C;
-  background-color: rgba(230, 162, 60, 0.1);
-}
-
-.selected-answer-answerer .taunt-bubble {
-  opacity: 1;
-  transform: scale(1);
+.highlighted {
+  border-color: #409EFF;
+  background: rgba(64, 158, 255, 0.1);
 }
 
 .answer-content {
@@ -873,142 +886,6 @@ const availableModelTags = computed(() => {
 .available-models {
   text-align: center;
   margin-bottom: 20px;
-}
-
-.model-tag {
-  margin: 0 5px;
-}
-
-.waiting-text {
-  text-align: center;
-  color: #606266;
-  margin-top: 20px;
-  font-size: 1.1em;
-}
-
-.suggested-questions-hint {
-  margin: 20px 0 10px;
-  color: #606266;
-  font-size: 1.1em;
-}
-
-.loading-dots {
-  display: inline-block;
-  min-width: 24px;
-}
-
-.hint-text {
-  font-size: 0.9em;
-  color: #909399;
-  font-weight: normal;
-  margin-left: 8px;
-}
-
-.taunt-bubble {
-  position: absolute;
-  top: -60px;
-  right: 20px;
-  background: #ff4757;
-  color: white;
-  padding: 10px 15px;
-  border-radius: 8px;
-  font-size: 14px;
-  max-width: 300px;
-  z-index: 10;
-  opacity: 0;
-  transform-origin: bottom right;
-  transform: scale(0.8);
-  transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
-  box-shadow: 0 4px 12px rgba(255, 71, 87, 0.3);
-}
-
-.taunt-bubble::after {
-  content: '';
-  position: absolute;
-  bottom: -8px;
-  right: 20px;
-  border-left: 8px solid transparent;
-  border-right: 8px solid transparent;
-  border-top: 8px solid #ff4757;
-}
-
-.answering-section {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  max-width: 800px;
-  margin: 0 auto;
-}
-
-.answer-input {
-  margin: 20px 0;
-}
-
-.button-container {
-  display: flex;
-  justify-content: center;
-  margin-top: 20px;
-}
-
-.submit-answer-button {
-  min-width: 120px;
-}
-
-.game-over-content {
-  text-align: center;
-  padding: 20px 0;
-}
-
-.game-over-message {
-  font-size: 18px;
-  color: #409EFF;
-  margin-bottom: 20px;
-}
-
-.score-details {
-  text-align: left;
-  background-color: #f5f7fa;
-  padding: 15px;
-  border-radius: 8px;
-}
-
-.final-score {
-  font-size: 20px;
-  color: #67c23a;
-  font-weight: bold;
-  margin-bottom: 10px;
-}
-
-.score-breakdown {
-  color: #606266;
-  white-space: pre-line;
-  line-height: 1.5;
-}
-
-.model-tags-section {
-  background: #f5f7fa;
-  border-radius: 8px;
-  padding: 15px;
-  margin: 10px 0 20px;
-}
-
-.model-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.model-tags.used-tags {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px dashed #dcdfe6;
-}
-
-.model-tags-hint {
-  color: #909399;
-  font-size: 14px;
-  margin-top: 10px;
-  text-align: center;
 }
 
 .model-tag {
@@ -1102,5 +979,83 @@ const availableModelTags = computed(() => {
 .answer-card.drag-over .model-tag-container {
   border-color: #409eff;
   background: rgba(64, 158, 255, 0.1);
+}
+
+.questioner-choice {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  color: #67C23A;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.model-tags-section {
+  background: #f5f7fa;
+  border-radius: 8px;
+  padding: 15px;
+  margin: 10px 0 20px;
+}
+
+.model-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.model-tags.used-tags {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #dcdfe6;
+}
+
+.model-tags-hint {
+  margin-top: 10px;
+  padding: 10px;
+  background: #f5f7fa;
+  border-radius: 4px;
+}
+
+.hint-primary {
+  color: #409EFF;
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.hint-secondary {
+  color: #606266;
+}
+
+.taunt-bubble {
+  position: absolute;
+  top: -60px;
+  right: 20px;
+  background: #ff4757;
+  color: white;
+  padding: 10px 15px;
+  border-radius: 8px;
+  font-size: 14px;
+  max-width: 300px;
+  z-index: 10;
+  opacity: 0;
+  transform-origin: bottom right;
+  transform: scale(0.8);
+  transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  box-shadow: 0 4px 12px rgba(255, 71, 87, 0.3);
+}
+
+.taunt-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  right: 20px;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 8px solid #ff4757;
+}
+
+.selected .taunt-bubble {
+  opacity: 1;
+  transform: scale(1);
 }
 </style>
