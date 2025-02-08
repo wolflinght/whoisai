@@ -462,26 +462,28 @@ io.on('connection', (socket) => {
       round: game.round,
       questionerScore: game.score,
       answererScore: game.answererScore,
-      potentialQuestionerScore: scores.questioner[game.round] || 0,
-      potentialAnswererScore: scores.answerer.survive[game.round] || 0
+      potentialQuestionerScore: scores.questioner[game.round + 1] || 0,  
+      potentialAnswererScore: scores.answerer.survive[game.round + 1] || 0  
     });
 
     // 更新并发送分数给提问者和回答者
     io.to(game.questioner.id).emit('roundResult', {
       correct: !isAI,
       score: game.score,
-      potentialScore: scores.questioner[game.round] || 0,  // 使用计算好的潜在分数
+      potentialScore: scores.questioner[game.round + 1] || 0,  
       tauntMessage,
-      remainingAI: game.aiPlayers.length
+      remainingAI: game.aiPlayers.length,
+      round: game.round + 1
     });
 
     if (game.humanPlayer) {
       io.to(game.humanPlayer.id).emit('roundResult', {
         correct: !isAI,
         score: game.answererScore,
-        potentialScore: scores.answerer.survive[game.round] || 0,  // 使用计算好的潜在分数
+        potentialScore: scores.answerer.survive[game.round + 1] || 0,  
         tauntMessage,
-        remainingAI: game.aiPlayers.length
+        remainingAI: game.aiPlayers.length,
+        round: game.round + 1
       });
     }
 
