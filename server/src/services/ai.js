@@ -257,20 +257,23 @@ export async function generateTauntMessage(modelKey, question) {
 // 生成推荐问题
 export async function generateSuggestedQuestions() {
   const model = AI_MODELS['claude'];  // 使用 Claude 模型
-  const systemPrompt = `生成3个有趣的问题，这些问题应该能帮助区分AI和人类的回答。要求：
-1. 每个问题必须在20字以内
-2. 问题要开放性强，能引发思考
-3. 避免技术性或专业性的问题
-4. 问题要关注个人经历、观点或情感
-5. 问题要简单直接，一句话说清楚
-6. 确保问题适合所有年龄段的人回答
+  const systemPrompt = `你是一个问题生成器。直接生成3个问题，不要有任何开场白或解释。每个问题必须：
+- 20字以内
+- 开放性强
+- 非技术性
+- 关注个人经历或情感
+- 简单直接
+- 适合所有年龄
 
-示例问题格式：
-1. 你最喜欢的一本书是什么？为什么？
-2. 如果可以选择一项超能力，你会选择什么？
-3. 你童年最难忘的一件事是什么？
+格式要求：
+- 每行一个问题
+- 不要数字编号
+- 不要多余的开场白或结束语
 
-请按数字编号列出三个问题。`;
+示例输出：
+你最喜欢的一本书是什么？为什么？
+如果可以选择一项超能力，你会选择什么？
+你童年最难忘的一件事是什么？`;
   
   try {
     const headers = {
@@ -285,7 +288,7 @@ export async function generateSuggestedQuestions() {
       },
       {
         role: "user",
-        content: "请生成三个符合要求的问题，每个问题都必须控制在20字以内。"
+        content: "生成三个问题。"
       }
     ];
 
