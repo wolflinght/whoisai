@@ -12,7 +12,8 @@ import {
   AI_MODELS, 
   getRandomModels, 
   generateAIAnswer, 
-  generateSuggestedQuestions 
+  generateSuggestedQuestions,
+  generateTauntMessage
 } from './services/ai.js';
 import { db, upsertPlayer, updatePlayerScore, getPlayer, getLeaderboard } from './database.js';
 import logger from './logger.js';
@@ -547,15 +548,13 @@ io.on('connection', (socket) => {
     });
 
     if (isAI) {
-      // 如果选择了AI，生成带有模型信息的嘲讽消息
-      const tauntMessages = [
-        `哈哈，我是${selectedPlayer.modelKey}，看来我的回答很像人类呢！`,
-        `身为${selectedPlayer.modelKey}，我成功骗过了你~`,
-        `${selectedPlayer.modelKey}也可以像人类一样有创意！`,
-        `这次我（${selectedPlayer.modelKey}）学会了人类的说话方式！`,
-        `${selectedPlayer.modelKey}的回答让你分不清AI和人类呢！`
-      ];
-      tauntMessage = tauntMessages[Math.floor(Math.random() * tauntMessages.length)];
+      // 如果选中的是AI，生成嘲讽消息
+      try {
+        tauntMessage = await generateTauntMessage(selectedPlayer.modelKey, game.currentQuestion);
+      } catch (error) {
+        console.error('Error generating taunt message:', error);
+        tauntMessage = '看来我的回答很有说服力呢～';
+      }
 
       // 从游戏中移除这个AI玩家
       game.aiPlayers = game.aiPlayers.filter(p => p.id !== playerId);

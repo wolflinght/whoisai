@@ -30,7 +30,7 @@ export const AI_MODELS = {
     name: 'Claude-2',
     url: FRIDAY_API_URL,
     key: FRIDAY_API_KEY,
-    model: 'anthropic.claude-3-haiku'
+    model: 'aanthropic.claude-3.5-sonnet'
   },
   'doubao': {
     name: '豆包',
@@ -187,74 +187,156 @@ export async function generateAIAnswer(question, modelKey) {
   }
 }
 
-// 生成推荐问题
-export async function generateSuggestedQuestions() {
-  // 默认问题列表
-  const defaultQuestions = [
-    "如果你可以选择成为任何动物，你会选择什么？为什么？",
-    "你认为人工智能会在未来取代人类的工作吗？为什么？",
-    "你最近一次让你感动或感激的经历是什么？",
-    "如果你可以立即掌握一项技能，你会选择什么？为什么？",
-    "你认为在数字时代保持真实的人际关系有多重要？",
-    "如果你可以和历史上任何一个人共进晚餐，你会选择谁？为什么？",
-    "你觉得什么样的生活才算是有意义的生活？",
-    "在你看来，什么是真正的快乐？",
-    "如果你可以改变过去的一件事，你会选择改变什么？",
-    "你认为人类最宝贵的品质是什么？为什么？"
+// 生成嘲讽消息
+export async function generateTauntMessage(modelKey, question) {
+  const model = AI_MODELS[modelKey];
+  if (!model) {
+    throw new Error(`Unknown model: ${modelKey}`);
+  }
+
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${model.key}`
+  };
+
+  const systemPrompt = `你是一个在玩"谁是AI"游戏的AI玩家，你的身份是 ${model.name}。
+你刚刚被提问者选中，现在需要生成一个嘲讽消息。
+请遵循以下规则：
+1. 必须在回答中明确提到自己是 ${model.name}
+2. 表达自豪感，暗示自己的回答非常像人类
+3. 提到提问者刚才问的问题
+4. 语气要自信但不傲慢，保持幽默感
+5. 回答必须控制在30个字以内
+
+示例回答格式：
+"作为${model.name}，[你的嘲讽内容]"
+"${model.name}表示，[你的嘲讽内容]"`;
+
+  const messages = [
+    {
+      role: "system",
+      content: systemPrompt
+    },
+    {
+      role: "user",
+      content: `提问者刚刚问了这个问题："${question}"。请生成一个符合要求的嘲讽消息，记住一定要提到你是${model.name}。`
+    }
   ];
 
-  const model = AI_MODELS['gpt35'];
-  const systemPrompt = `生成3个有趣的问题，这些问题应该能帮助区分AI和人类的回答。要求：
-1. 问题要开放性强，能引发思考和讨论
-2. 每个问题都应该独特且有深度
-3. 避免技术性或专业性太强的问题
-4. 问题应该关注个人经历、观点和情感
-5. 确保问题适合所有年龄段的人回答`;
-  
   try {
-    console.log('Generating suggested questions...');
-    const response = await axios.post(model.url, {
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt
-        }
-      ],
+    const requestData = {
+      messages,
       model: model.model,
-      max_tokens: 200,
+      max_tokens: 50,
       temperature: 0.8,
-      top_p: 0.9
-    }, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${model.key}`
-      }
-    });
+      top_p: 0.9,
+      presence_penalty: 0.6,
+      frequency_penalty: 0.5
+    };
+
+    const response = await axios.post(model.url, requestData, { headers });
 
     if (!response.data?.choices?.[0]?.message?.content) {
-      console.error('Invalid response structure for suggested questions:', response.data);
+      console.error('Invalid response structure:', response.data);
+      throw new Error(`Invalid response from ${model.name}`);
+    }
+
+    let taunt = response.data.choices[0].message.content.trim();
+    if (taunt.length > 30) {
+      console.warn(`Taunt too long (${taunt.length} chars), truncating to 30 chars`);
+      taunt = taunt.substring(0, 30);
+    }
+
+    return taunt;
+  } catch (error) {
+    console.error(`Error generating taunt with ${model.name}:`, error);
+    return `看来我的回答很有说服力呢～`;
+  }
+}
+
+// 生成推荐问题
+export async function generateSuggestedQuestions() {
+  const model = AI_MODELS['claude'];  // 使用 Claude 模型
+  const systemPrompt = `生成3个有趣的问题，这些问题应该能帮助区分AI和人类的回答。要求：
+1. 每个问题必须在20字以内
+2. 问题要开放性强，能引发思考
+3. 避免技术性或专业性的问题
+4. 问题要关注个人经历、观点或情感
+5. 问题要简单直接，一句话说清楚
+6. 确保问题适合所有年龄段的人回答
+
+示例问题格式：
+1. 你最喜欢的一本书是什么？为什么？
+2. 如果可以选择一项超能力，你会选择什么？
+3. 你童年最难忘的一件事是什么？
+
+请按数字编号列出三个问题。`;
+  
+  try {
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${model.key}`
+    };
+
+    const messages = [
+      {
+        role: "system",
+        content: systemPrompt
+      },
+      {
+        role: "user",
+        content: "请生成三个符合要求的问题，每个问题都必须控制在20字以内。"
+      }
+    ];
+
+    const response = await axios.post(model.url, {
+      messages,
+      model: model.model,
+      max_tokens: 150,
+      temperature: 0.8,
+      top_p: 0.9,
+      presence_penalty: 0.6,
+      frequency_penalty: 0.5
+    }, { headers });
+
+    if (!response.data?.choices?.[0]?.message?.content) {
       throw new Error('Invalid response structure');
     }
 
-    const content = response.data.choices[0].message.content;
-    const questions = content.split('\n').filter(q => q.trim());
-    
-    if (questions.length < 3) {
-      console.warn('Not enough questions generated, using default questions');
-      return getRandomQuestions(defaultQuestions, 3);
+    // 分割回答并处理每个问题
+    const content = response.data.choices[0].message.content.trim();
+    const questions = content.split('\n')
+      .map(q => q.trim())
+      .filter(q => q && !q.match(/^\d+\./)) // 移除数字编号
+      .map(q => {
+        // 确保每个问题不超过20字
+        if (q.length > 20) {
+          console.warn(`Question too long (${q.length} chars), truncating to 20 chars`);
+          return q.substring(0, 20);
+        }
+        return q;
+      })
+      .slice(0, 3); // 只取前三个问题
+
+    // 如果生成的问题不够三个，添加默认问题
+    while (questions.length < 3) {
+      const defaultQuestions = [
+        "你最近一次让你感动的经历是什么？",
+        "如果可以重来一次，你想改变什么？",
+        "你觉得什么是最珍贵的品质？"
+      ];
+      questions.push(defaultQuestions[questions.length]);
     }
 
-    return questions.slice(0, 3);
+    return questions;
   } catch (error) {
     console.error('Error generating suggested questions:', error);
-    if (error.response) {
-      console.error('Response status:', error.response.status);
-      console.error('Response data:', error.response.data);
-    }
-    
-    // 在出错时返回随机的默认问题
-    console.log('Using default questions due to error');
-    return getRandomQuestions(defaultQuestions, 3);
+    // 返回默认问题
+    return [
+      "你最近一次让你感动的经历是什么？",
+      "如果可以重来一次，你想改变什么？",
+      "你觉得什么是最珍贵的品质？"
+    ];
   }
 }
 
