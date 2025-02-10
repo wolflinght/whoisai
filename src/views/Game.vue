@@ -647,7 +647,7 @@ async function refreshSuggestedQuestions() {
 
 // 在游戏状态变为 asking 时获取问题
 watch(gameState, (newState) => {
-  if (newState === 'asking') {
+  if (newState === 'asking' && isQuestioner.value) {  // 只有提问者请求
     refreshSuggestedQuestions();
   }
 });

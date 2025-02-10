@@ -843,8 +843,25 @@ io.on('connection', (socket) => {
 
   socket.on('requestSuggestedQuestions', async () => {
     try {
+      // 获取玩家所在的游戏
+      const game = gameState.activeGames.get([...gameState.activeGames.keys()].find(
+        gameId => gameState.activeGames.get(gameId).players.some(p => p.id === socket.id)
+      ));
+
+      if (!game) {
+        console.error('Game not found for socket:', socket.id);
+        socket.emit('error', { message: '游戏未找到' });
+        return;
+      }
+
       const questions = await generateSuggestedQuestions();
-      socket.emit('suggestedQuestions', questions);
+      // 向游戏中的所有玩家广播相同的问题
+      game.players.forEach(player => {
+        const playerSocket = gameState.playerSockets.get(player.id);
+        if (playerSocket) {
+          playerSocket.emit('suggestedQuestions', questions);
+        }
+      });
     } catch (error) {
       console.error('Error generating questions:', error);
       socket.emit('error', { message: '生成推荐问题时出错' });
