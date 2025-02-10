@@ -398,6 +398,12 @@ io.on('connection', (socket) => {
     if (!game || socket.id !== game.humanPlayer.id) return;
 
     try {
+      // 检查答案长度
+      if (answer.length > 30) {
+        socket.emit('error', { message: '回答不能超过30个字' });
+        return;
+      }
+
       // 保存人类玩家的回答
       game.answers.set(socket.id, answer);
       console.log('Human player answered:', answer);

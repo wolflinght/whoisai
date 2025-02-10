@@ -99,16 +99,17 @@ export async function generateAIAnswer(question, modelKey) {
     'Authorization': `Bearer ${model.key}`
   };
 
-  // 更新系统提示，让回答更自然
+  // 更新系统提示，让回答更自然且简短
   const systemPrompt = `你正在参与一个问答游戏，需要假装自己是一个人类玩家。
 请遵循以下规则：
 1. 用自然、真实的语气回答问题
 2. 可以表达个人情感和观点，但要保持合理性
 3. 避免过于完美或机械的回答
 4. 可以适当表达犹豫或不确定
-5. 回答长度保持在50-150字之间
-6. 可以使用口语化的表达
-7. 避免过于专业或学术的语言`;
+5. 回答必须控制在30个字以内
+6. 使用口语化的表达
+7. 避免过于专业或学术的语言
+8. 回答要简短精炼，一句话说清楚`;
 
   const messages = [
     {
@@ -117,7 +118,7 @@ export async function generateAIAnswer(question, modelKey) {
     },
     {
       role: "user",
-      content: question
+      content: `请用不超过30个字回答这个问题：${question}`
     }
   ];
 
@@ -128,11 +129,11 @@ export async function generateAIAnswer(question, modelKey) {
     const requestData = {
       messages,
       model: model.model,
-      max_tokens: 150,
-      temperature: 0.8,  // 增加随机性，使回答更多样化
-      top_p: 0.9,        // 控制回答的新颖性
-      presence_penalty: 0.6,  // 鼓励模型使用新的词汇
-      frequency_penalty: 0.5  // 减少重复
+      max_tokens: 50,  // 降低 token 限制以确保简短回答
+      temperature: 0.8,
+      top_p: 0.9,
+      presence_penalty: 0.6,
+      frequency_penalty: 0.5
     };
 
     // 为特定模型添加额外参数
@@ -154,10 +155,11 @@ export async function generateAIAnswer(question, modelKey) {
       throw new Error(`Invalid response from ${model.name}`);
     }
 
-    // 处理回答，确保长度合适
+    // 处理回答，确保长度不超过30字
     let answer = response.data.choices[0].message.content.trim();
-    if (answer.length > 300) {
-      answer = answer.substring(0, 300) + '...';
+    if (answer.length > 30) {
+      console.warn(`Answer too long (${answer.length} chars), truncating to 30 chars`);
+      answer = answer.substring(0, 30);
     }
 
     return answer;
@@ -173,13 +175,13 @@ export async function generateAIAnswer(question, modelKey) {
       console.error('Error setting up request:', error.message);
     }
     
-    // 提供更自然的错误回退响应
+    // 提供更自然的错误回退响应（确保不超过30字）
     const fallbackResponses = [
-      "抱歉，我现在有点累，让我想想...",
-      "这个问题有点难，我需要时间思考",
-      "嗯...这是个好问题，不过我现在有点恍惚",
-      "让我缓缓，这个问题不太好回答",
-      "我得好好想想怎么回答这个问题"
+      "抱歉，让我想想...",
+      "这问题有点难，我需要时间",
+      "嗯...我得好好想想",
+      "让我缓缓，不太好回答",
+      "容我思考一下"
     ];
     return fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
   }

@@ -179,22 +179,26 @@
         <div v-if="gameState === 'answering'" class="answering-section">
           <h3>请回答问题：</h3>
           <div class="current-question">{{ currentQuestion }}</div>
-          <el-input
-            v-model="answer"
-            type="textarea"
-            placeholder="输入你的回答"
-            :rows="3"
-            class="answer-input"
-          />
-          <div class="button-container">
-            <el-button 
-              type="primary" 
-              @click="submitAnswer"
-              :disabled="!answer"
-              class="submit-answer-button"
-            >
-              提交回答
-            </el-button>
+          <div class="answer-input-container">
+            <el-input
+              v-model="answer"
+              type="textarea"
+              :maxlength="30"
+              show-word-limit
+              placeholder="输入你的回答（最多30字）"
+              :rows="3"
+              class="answer-input"
+            />
+            <div class="button-container">
+              <el-button 
+                type="primary" 
+                @click="submitAnswer"
+                :disabled="!answer || answer.length > 30"
+                class="submit-answer-button"
+              >
+                提交回答
+              </el-button>
+            </div>
           </div>
         </div>
 
@@ -1094,5 +1098,18 @@ const availableModelTags = computed(() => {
 .score-breakdown {
   color: #606266;
   line-height: 1.6;
+}
+
+.answer-input-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.answer-input {
+  width: 100%;
 }
 </style>
