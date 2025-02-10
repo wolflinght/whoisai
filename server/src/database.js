@@ -1,15 +1,21 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
-const fs = require('fs');
+import sqlite3pkg from 'sqlite3';
+const sqlite3 = sqlite3pkg.verbose();
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import fs from 'fs';
+
+// 获取当前文件的目录
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // 创建logs目录（如果不存在）
-const logsDir = path.join(__dirname, '../logs');
+const logsDir = join(__dirname, '../logs');
 if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir);
 }
 
 // 创建日志写入流
-const logStream = fs.createWriteStream(path.join(logsDir, 'database.log'), { flags: 'a' });
+const logStream = fs.createWriteStream(join(logsDir, 'database.log'), { flags: 'a' });
 
 // 日志函数
 function log(message, data = null) {
@@ -20,13 +26,13 @@ function log(message, data = null) {
 }
 
 // 数据库连接
-const dbDir = path.join(__dirname, '../data');
+const dbDir = join(__dirname, '../data');
 // 确保数据目录存在
 if (!fs.existsSync(dbDir)) {
     fs.mkdirSync(dbDir);
 }
 
-const db = new sqlite3.Database(path.join(dbDir, 'players.db'), (err) => {
+const db = new sqlite3.Database(join(dbDir, 'players.db'), (err) => {
     if (err) {
         log('Database connection error:', err);
     } else {
@@ -232,7 +238,8 @@ function getPlayerScore(id) {
     });
 }
 
-module.exports = {
+// 导出所有功能
+export {
     db,
     upsertPlayer,
     updatePlayerScore,

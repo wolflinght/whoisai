@@ -1,14 +1,19 @@
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+// 获取当前文件的目录
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // 创建logs目录（如果不存在）
-const logsDir = path.join(__dirname, '../logs');
+const logsDir = join(__dirname, '../logs');
 if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
 
 // 创建日志写入流
-const logStream = fs.createWriteStream(path.join(logsDir, 'game.log'), { flags: 'a' });
+const logStream = fs.createWriteStream(join(logsDir, 'game.log'), { flags: 'a' });
 
 function formatMessage(level, message, data = null) {
   const timestamp = new Date().toISOString();
@@ -41,4 +46,4 @@ const logger = {
   }
 };
 
-module.exports = logger;
+export default logger;

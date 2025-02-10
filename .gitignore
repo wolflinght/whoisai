@@ -7,7 +7,16 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies
 node_modules
+.pnp
+.pnp.js
+
+# Testing
+coverage
+*.lcov
+
+# Production
 dist
 dist-ssr
 *.local
@@ -16,7 +25,6 @@ dist-ssr
 .vscode/*
 !.vscode/extensions.json
 .idea
-.DS_Store
 *.suo
 *.ntvs*
 *.njsproj
@@ -26,12 +34,13 @@ dist-ssr
 # Environment variables
 .env
 .env.*
+!.env.example
 
-# Build files
-/dist/
-/build/
+# Database
+*.db
+*.sqlite
+*.sqlite3
 
-# Cache
-.cache/
-.temp/
-.vite/
+# OS
+.DS_Store
+Thumbs.db

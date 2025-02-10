@@ -1,23 +1,40 @@
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const cors = require('cors');
-const fs = require('fs');
-const path = require('path');
-require('dotenv').config();
-const { 
+// 首先加载环境变量
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import express from 'express';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
+import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
+import { 
   AI_MODELS, 
   getRandomModels, 
   generateAIAnswer, 
   generateSuggestedQuestions 
-} = require('./services/ai');
-const { db, upsertPlayer, updatePlayerScore, getPlayer, getLeaderboard } = require('./database');
-const logger = require('./logger');
+} from './services/ai.js';
+import { db, upsertPlayer, updatePlayerScore, getPlayer, getLeaderboard } from './database.js';
+import logger from './logger.js';
+
+// 获取当前文件的目录
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// 加载环境变量
+const envPath = join(__dirname, '../../.env');
+console.log('Loading environment variables from:', envPath);
+const result = dotenv.config({ path: envPath });
+
+if (result.error) {
+  console.error('Error loading .env file:', result.error);
+  process.exit(1);
+}
 
 const app = express();
 app.use(cors());
 
-const server = http.createServer(app);
+const server = createServer(app);
 
 // 配置Socket.IO
 const io = new Server(server, {
@@ -327,25 +344,65 @@ io.on('connection', (socket) => {
 
   socket.on('submitQuestion', async ({ gameId, question }) => {
     const game = gameState.activeGames.get(gameId);
-    if (!game) return;
+    if (!game || socket.id !== game.questioner.id) return;
 
+    // 清除之前的答案
+    game.answers.clear();
     game.currentQuestion = question;
-    game.answers = new Map(); // 重置答案
-    
+
     // 广播问题给所有玩家
-    io.to(gameId).emit('questionReceived', { 
-      question,
-      remainingAI: game.aiPlayers.length // 添加剩余AI数量
-    });
+    io.to(gameId).emit('questionReceived', { question });
 
-    // 为AI生成回答
-    for (const aiPlayer of game.aiPlayers) {
-      const aiAnswer = await generateAIAnswer(question, aiPlayer.modelKey);
-      game.answers.set(aiPlayer.id, aiAnswer);
+    // 为每个AI玩家生成答案
+    try {
+      console.log('Generating AI answers for question:', question);
+      const aiAnswerPromises = game.aiPlayers.map(async (ai) => {
+        try {
+          const answer = await generateAIAnswer(question, ai.modelKey);
+          game.answers.set(ai.id, answer);
+          console.log(`AI ${ai.modelKey} answered:`, answer);
+          return true;
+        } catch (error) {
+          console.error(`Error generating answer for AI ${ai.modelKey}:`, error);
+          // 在出错时使用默认回答
+          const fallbackAnswer = "抱歉，我需要一点时间思考这个问题...";
+          game.answers.set(ai.id, fallbackAnswer);
+          return true;
+        }
+      });
+
+      // 等待所有AI回答完成
+      await Promise.all(aiAnswerPromises);
+
+      // 检查是否所有答案都已收到
+      const allAIAnswered = game.aiPlayers.every(ai => game.answers.has(ai.id));
+      const humanAnswered = game.answers.has(game.humanPlayer.id);
+      
+      if (allAIAnswered && humanAnswered) {
+        // 所有答案都已收到，通知所有玩家
+        io.to(gameId).emit('allAnswersReceived', {
+          answers: Array.from(game.answers.entries()).map(([id, answer]) => ({
+            playerId: id,
+            answer
+          }))
+        });
+      }
+    } catch (error) {
+      console.error('Error handling question submission:', error);
+      socket.emit('error', { message: '处理问题时出错，请重试' });
     }
+  });
 
-    // 检查是否所有答案都已收到
-    const checkAllAnswers = () => {
+  socket.on('submitAnswer', async ({ gameId, answer }) => {
+    const game = gameState.activeGames.get(gameId);
+    if (!game || socket.id !== game.humanPlayer.id) return;
+
+    try {
+      // 保存人类玩家的回答
+      game.answers.set(socket.id, answer);
+      console.log('Human player answered:', answer);
+
+      // 检查是否所有答案都已收到
       const humanAnswered = game.answers.has(game.humanPlayer.id);
       const allAIAnswered = game.aiPlayers.every(ai => game.answers.has(ai.id));
       
@@ -355,35 +412,12 @@ io.on('connection', (socket) => {
           answers: Array.from(game.answers.entries()).map(([id, answer]) => ({
             playerId: id,
             answer
-          })),
-          remainingAI: game.aiPlayers.length // 添加剩余AI数量
+          }))
         });
       }
-    };
-
-    // 设置超时，确保AI回答完成后检查
-    setTimeout(checkAllAnswers, 1000);
-  });
-
-  socket.on('submitAnswer', ({ gameId, answer }) => {
-    const game = gameState.activeGames.get(gameId);
-    if (!game || socket.id !== game.humanPlayer.id) return;
-
-    // 保存人类玩家的回答
-    game.answers.set(socket.id, answer);
-
-    // 检查是否所有答案都已收到
-    const humanAnswered = game.answers.has(game.humanPlayer.id);
-    const allAIAnswered = game.aiPlayers.every(ai => game.answers.has(ai.id));
-    
-    if (humanAnswered && allAIAnswered) {
-      // 所有答案都已收到，通知所有玩家
-      io.to(gameId).emit('allAnswersReceived', {
-        answers: Array.from(game.answers.entries()).map(([id, answer]) => ({
-          playerId: id,
-          answer
-        }))
-      });
+    } catch (error) {
+      console.error('Error handling answer submission:', error);
+      socket.emit('error', { message: '提交答案时出错，请重试' });
     }
   });
 
