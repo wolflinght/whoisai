@@ -23,31 +23,45 @@
           <div class="custom-question">
             <el-input
               v-model="customQuestion"
-              type="textarea"
-              placeholder="请输入问题或点击下方推荐问题"
+              placeholder="输入自定义问题"
               :rows="3"
+              type="textarea"
+              class="question-input"
             />
             <el-button 
               type="primary" 
               @click="submitQuestion"
-              :disabled="!customQuestion"
+              :disabled="!customQuestion && !selectedQuestion"
               class="submit-button"
             >
               提交问题
             </el-button>
           </div>
           <div class="suggested-questions">
-            <h4>推荐问题：</h4>
-            <div class="question-tags">
-              <el-tag
+            <h4>推荐问题：
+              <el-button 
+                type="text" 
+                size="small"
+                :loading="loadingSuggestions"
+                @click="refreshSuggestedQuestions"
+              >
+                <i class="el-icon-refresh"></i> 换一批
+              </el-button>
+            </h4>
+            <div v-if="loadingSuggestions" class="loading-questions">
+              <el-icon class="is-loading"><loading /></el-icon>
+              正在生成问题...
+            </div>
+            <div v-else class="question-list">
+              <div
                 v-for="(q, index) in suggestedQuestions"
                 :key="index"
-                class="question-tag"
-                @click="selectSuggestedQuestion(q)"
-                :effect="customQuestion === q ? 'dark' : 'plain'"
+                class="question-item"
+                :class="{ selected: selectedQuestion === q }"
+                @click="selectedQuestion = q; customQuestion = q"
               >
                 {{ q }}
-              </el-tag>
+              </div>
             </div>
           </div>
         </div>
@@ -277,7 +291,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { ElMessage, ElDialog, ElButton } from 'element-plus'
 import { useStore } from 'vuex'
 import { useRouter } from 'vue-router'
@@ -296,11 +310,7 @@ const isQuestioner = ref(false)
 const currentQuestion = ref('')
 const nextRoundTimer = ref(0)
 const remainingAI = ref(0) // 默认0个AI
-const suggestedQuestions = ref([
-  "你最喜欢的一本书是什么？为什么？",
-  "如果可以选择一个超能力，你会选择什么？",
-  "你认为人工智能会在未来取代人类吗？为什么？"
-])
+const suggestedQuestions = ref([])
 const selectedQuestion = ref('')
 const customQuestion = ref('')
 const answer = ref('')
@@ -329,12 +339,17 @@ const finalScore = ref(0)
 const scoreBreakdown = ref('')
 const roundScore = ref(0)
 
+const loadingSuggestions = ref(false)
+
 onMounted(() => {
   // 初始化游戏状态
   initializeGame()
   
   // 设置Socket.IO监听器
   setupSocketListeners()
+  
+  // 获取第一批推荐问题
+  refreshSuggestedQuestions();
 })
 
 onUnmounted(() => {
@@ -344,6 +359,7 @@ onUnmounted(() => {
   if (timerInterval) {
     clearInterval(timerInterval)
   }
+  socket.off('suggestedQuestions');
 })
 
 const initializeGame = () => {
@@ -450,6 +466,11 @@ const setupSocketListeners = () => {
     });
     handleGameOver(reason)
   })
+
+  socket.on('suggestedQuestions', (questions) => {
+    suggestedQuestions.value = questions;
+    loadingSuggestions.value = false;
+  });
 }
 
 const handleGameOver = (message) => {
@@ -535,10 +556,6 @@ const guessModel = (playerId) => {
   })
 }
 
-const selectSuggestedQuestion = (q) => {
-  customQuestion.value = q
-}
-
 // 拖拽相关的状态
 const draggedModel = ref(null)
 const draggedFromPlayerId = ref(null)
@@ -617,6 +634,24 @@ const usedModels = computed(() => {
 const availableModelTags = computed(() => {
   return availableModels.value.filter(model => !usedModels.value.has(model))
 })
+
+// 获取推荐问题
+async function refreshSuggestedQuestions() {
+  if (loadingSuggestions.value) return;
+  
+  loadingSuggestions.value = true;
+  customQuestion.value = ''; // 清空自定义问题
+  selectedQuestion.value = ''; // 清空选中的问题
+  socket.emit('requestSuggestedQuestions');
+}
+
+// 在游戏状态变为 asking 时获取问题
+watch(gameState, (newState) => {
+  if (newState === 'asking') {
+    refreshSuggestedQuestions();
+  }
+});
+
 </script>
 
 <style scoped>
@@ -730,16 +765,6 @@ const availableModelTags = computed(() => {
 .player-card.selected {
   border-color: #409EFF;
   background-color: #ecf5ff;
-}
-
-.player-name {
-  margin: 10px 0;
-  font-weight: bold;
-}
-
-.player-answer {
-  font-size: 0.9em;
-  color: #606266;
 }
 
 .timer {
@@ -1111,5 +1136,59 @@ const availableModelTags = computed(() => {
 
 .answer-input {
   width: 100%;
+}
+
+.suggested-questions {
+  margin-top: 20px;
+}
+
+.suggested-questions h4 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.question-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.question-item {
+  padding: 10px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.question-item:hover {
+  background-color: #f5f7fa;
+}
+
+.question-item.selected {
+  border-color: #409eff;
+  background-color: #ecf5ff;
+}
+
+.loading-questions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px;
+  color: #909399;
+}
+
+.custom-question {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.submit-button {
+  align-self: flex-end;
 }
 </style>

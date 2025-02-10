@@ -840,6 +840,16 @@ io.on('connection', (socket) => {
       socket.emit('error', { message: 'Failed to get leaderboard' });
     }
   });
+
+  socket.on('requestSuggestedQuestions', async () => {
+    try {
+      const questions = await generateSuggestedQuestions();
+      socket.emit('suggestedQuestions', questions);
+    } catch (error) {
+      console.error('Error generating questions:', error);
+      socket.emit('error', { message: '生成推荐问题时出错' });
+    }
+  });
 });
 
 const PORT = process.env.PORT || 3000;
