@@ -553,7 +553,8 @@ io.on('connection', (socket) => {
         tauntMessage = await generateTauntMessage(selectedPlayer.modelKey, game.currentQuestion);
       } catch (error) {
         console.error('Error generating taunt message:', error);
-        tauntMessage = '看来我的回答很有说服力呢～';
+        // 当请求失败时，使用特定的嘲讽消息
+        tauntMessage = `我是${selectedPlayer.modelName}，不会我出bug了你都还相信我吧`;
       }
 
       // 从游戏中移除这个AI玩家

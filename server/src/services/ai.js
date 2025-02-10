@@ -30,7 +30,7 @@ export const AI_MODELS = {
     name: 'Claude-2',
     url: FRIDAY_API_URL,
     key: FRIDAY_API_KEY,
-    model: 'aanthropic.claude-3.5-sonnet'
+    model: 'anthropic.claude-3.5-sonnet'
   },
   'doubao': {
     name: '豆包',
@@ -242,9 +242,9 @@ export async function generateTauntMessage(modelKey, question) {
     }
 
     let taunt = response.data.choices[0].message.content.trim();
-    if (taunt.length > 30) {
-      console.warn(`Taunt too long (${taunt.length} chars), truncating to 30 chars`);
-      taunt = taunt.substring(0, 30);
+    if (taunt.length > 35) {
+      console.warn(`Taunt too long (${taunt.length} chars), truncating to 35 chars`);
+      taunt = taunt.substring(0, 35);
     }
 
     return taunt;
