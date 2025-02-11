@@ -165,7 +165,7 @@
             <el-button 
               type="primary" 
               @click="submitChoice"
-              :disabled="!selectedPlayer"
+              :disabled="!selectedPlayer || isSubmittingChoice"
               class="submit-button"
             >
               确认选择
@@ -340,6 +340,9 @@ const scoreBreakdown = ref('')
 const roundScore = ref(0)
 
 const loadingSuggestions = ref(false)
+
+// 新增状态控制
+const isSubmittingChoice = ref(false)
 
 onMounted(() => {
   // 初始化游戏状态
@@ -542,19 +545,20 @@ const selectPlayer = (playerId) => {
 }
 
 const submitChoice = () => {
+  if (isSubmittingChoice.value) return
+  isSubmittingChoice.value = true
   store.dispatch('game/submitChoice', selectedPlayer.value)
 }
 
-const guessModel = (playerId) => {
-  if (score.value < 2) {
-    return
+// 监听游戏状态变化，重置提交状态
+watch(gameState, (newState) => {
+  if (newState === 'asking') {
+    isSubmittingChoice.value = false
+    if (isQuestioner.value) {
+      refreshSuggestedQuestions()
+    }
   }
-  
-  store.dispatch('game/guessModel', {
-    playerId,
-    modelGuess: modelGuesses.value[playerId]
-  })
-}
+})
 
 // 拖拽相关的状态
 const draggedModel = ref(null)
